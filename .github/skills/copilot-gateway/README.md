@@ -147,6 +147,12 @@ Codex uses Responses over HTTP/SSE. The upstream catalog advertised WebSockets, 
 
 Claude Code uses LiteLLM's existing Messages-to-Chat-to-Responses compatibility path. The final upstream request is still Responses. This avoids the observed tool-stream failure in the direct Messages-to-Responses path when Copilot changes item IDs between stream events. Ordinary streaming and tools remain enabled
 
+Claude auto mode makes a separate, non-streaming safety-classifier request with `stop_sequences: ["</block>"]`. Responses does not accept the translated `stop` parameter. The gateway's registered callback handles stop sequences locally for non-streaming GPT Messages requests without tools: it omits only the upstream stop parameter, retains the original sequences, and truncates returned text at the first matching sequence with the correct `stop_reason` and `stop_sequence`. The model's actual allow or block decision is preserved. Existing approval rules and auto mode remain unchanged
+
+Streaming requests and requests declaring tools do not use this stop emulation and still reject unsupported stop parameters. The callback does not alter thinking blocks or invent successful tool results. Because truncation happens after generation, upstream usage can include text beyond the marker, and the original usage counts are preserved. This compatibility check is not a safety guarantee for running a non-Claude classifier model
+
+The native model name `gpt-6-astra[1m]` works through Claude Code's own model normalization. Claude sends `gpt-6-astra` on the wire, so no fabricated upstream model or extra gateway alias is needed
+
 Codex receives an explicit model catalog, including the observed context limits and reasoning levels, so it does not silently use unknown-model metadata. Setup downloads the official generic Codex prompt from the pinned release and verifies its SHA-256 before using it. It does not replace the Codex prompt with handwritten gateway instructions. That upstream prompt is distributed under [Codex's Apache-2.0 license](https://github.com/openai/codex/blob/rust-v0.146.0/LICENSE)
 
 The default reasoning effort is `high`. Codex compacts at 90% of the advertised input limit rather than 90% of the larger total context window. This leaves room for the next tool result and respects Copilot's input/output split
@@ -233,6 +239,7 @@ uv run --no-sync basedpyright \
   .github/skills/copilot-gateway/gateway.py \
   .github/skills/copilot-gateway/gateway_config.py \
   .github/skills/copilot-gateway/gateway_files.py \
+  .github/skills/copilot-gateway/gateway_stop_sequences.py \
   .github/skills/copilot-gateway/native_config.py
 bash -n .github/skills/copilot-gateway/bootstrap.sh
 ```

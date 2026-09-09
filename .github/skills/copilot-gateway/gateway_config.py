@@ -132,6 +132,7 @@ def proxy_configuration(checkpoint: Checkpoint, pins: tuple[ModelPin, ...]) -> M
             "disable_spend_logs": True,
         },
         "litellm_settings": {
+            "callbacks": ["gateway_stop_sequences.handler"],
             "drop_params": False,
             "set_verbose": False,
             "num_retries": 0,

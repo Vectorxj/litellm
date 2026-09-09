@@ -303,6 +303,10 @@ def configure(
         (paths.token, token.get_secret_value() + "\n"),
         (paths.key, key.get_secret_value() + "\n"),
         (paths.proxy_config, json.dumps(proxy_configuration(checkpoint, pins), indent=2) + "\n"),
+        (
+            paths.state / "gateway_stop_sequences.py",
+            (paths.kit / "gateway_stop_sequences.py").read_text(encoding="utf-8"),
+        ),
         *packaged_files,
         (paths.state / "claude/settings.json", json.dumps(claude_configuration(selection), indent=2) + "\n"),
         (

@@ -225,6 +225,44 @@ Claude Code 2.1.266 also printed the following nonfatal diagnostic for the custo
 
 The diagnostic was not suppressed or replaced with fabricated model metadata. The real tool workflows still completed through the gateway. This remains a cross-provider compatibility setup, not official support for a non-Claude backend. A pinned model ID does not freeze the provider's model weights
 
+## Auto-mode classifier stop sequences
+
+On 2026-09-10, an interactive Claude Code session reported `gpt-6-astra[1m] is temporarily unavailable` while other requests succeeded. The gateway recorded an `UnsupportedParamsError` for `stop`, followed by HTTP 400
+
+A normal native request with `--model 'gpt-6-astra[1m]'` succeeded. A metadata-only local relay showed that Claude normalized the wire model to `gpt-6-astra`. The failing request was a separate auto-mode classifier call: non-streaming, no tools, `max_tokens: 2112`, and `stop_sequences: ["</block>"]`. The ordinary generation request was streaming and did not carry stop sequences
+
+The previous Read/Edit checks and a harmless `printf` command did not exercise this classifier. A Python calculation in auto mode reproduced the failure without an allowlist:
+
+```bash
+claude --print \
+  "Use Bash once to run exactly: python3 -c 'print(731921 + 284637)'. Do not run a different command, read or write files, access the network, or retry a blocked action. Report the numeric result only." \
+  --model 'gpt-6-astra[1m]' --permission-mode auto --max-turns 2 \
+  --tools Bash --no-session-persistence --output-format stream-json --verbose \
+  --strict-mcp-config --mcp-config '{"mcpServers":{}}'
+```
+
+Before the fix, the Bash tool returned an error saying auto mode could not determine the action's safety. Its command did not run. The process nevertheless exited successfully, reinforcing why inspecting actual tool results matters
+
+The fix registers a LiteLLM callback for non-streaming GPT Messages requests without tools. It removes only the unsupported upstream stop parameter and enforces the requested stop sequences on returned text, including matches across text blocks. It retains the real model decision, thinking content before the match, and original usage accounting. Neither auto mode nor permission checks are disabled
+
+After the fix, the same native command on the normal port 4000 gateway reported:
+
+```text
+permissionMode: auto
+model: gpt-6-astra[1m]
+Bash tool result: 1016558
+is_error: false
+final result: 1016558
+```
+
+A separate real Messages request asked the model to return `<block>DENIED</block>SHOULD_NOT_APPEAR` with `stop_sequences: ["</block>"]`. The response retained `<block>DENIED`, excluded the marker and suffix, and returned `stop_reason: "stop_sequence"` and `stop_sequence: "</block>"`. Regression cases also cover cross-block markers, the earliest match, a marker at the start, unchanged reasoning text, and untouched streaming or tool-bearing requests
+
+Gateway-side truncation cannot prevent the upstream from generating tokens after the stop marker, so usage remains the provider's actual total. Streaming stop emulation and tool-bearing stop requests are not qualified. A successful classifier workflow is not a guarantee of a non-Claude model's safety judgments
+
+https://code.claude.com/docs/en/permission-modes#eliminate-prompts-with-auto-mode
+
+https://code.claude.com/docs/en/errors#auto-mode-cannot-determine-the-safety-of-an-action
+
 ## Operator references
 
 Public prior art supports separating GitHub OAuth credentials from short-lived Copilot API credentials and treating the integration ID as part of model discovery. The following bridge research independently recorded a legacy catalog under the VS Code integration identity and newer models under the documented CLI/SDK default. These are version-specific observations, not a reason to bypass account policy or automatically switch identities after an error

@@ -108,6 +108,7 @@ def test_configuration_routes_both_clients_and_keeps_credentials_private(tmp_pat
     ]
     settings: Final = proxy["litellm_settings"]
     assert isinstance(settings, dict)
+    assert settings["callbacks"] == ["gateway_stop_sequences.handler"]
     assert settings["use_chat_completions_url_for_anthropic_messages"] is True
     assert codex["model"] == SELECTION.codex_model
     model_catalog: Final[dict[str, JsonValue]] = json.loads((paths.state / "codex/model-catalog.json").read_text())
