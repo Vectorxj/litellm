@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "checkpoint": "gpt-6-astra-2026-09-09",
+  "source_commit": "ee7c7e14f3dd7c4c3930a423440ec26427e2c554",
+  "uv_lock_sha256": "aa6c67c5f253a6514afe415f95d9d539e1199332e04f3216fdeff44d99c4238e",
+  "python_version": "3.12.13",
+  "uv_version": "0.12.5",
+  "codex_version": "0.146.0",
+  "codex_prompt_url": "https://raw.githubusercontent.com/openai/codex/rust-v0.146.0/codex-rs/models-manager/prompt.md",
+  "codex_prompt_sha256": "ac8ae107a0d72fe3476b430afb161ea4e67da2e446d778aefc44828160559807",
+  "claude_version": "2.1.220",
+  "default_codex_model": "gpt-6-astra",
+  "reasoning_effort": "high",
+  "upstream_headers": {
+    "User-Agent": "litellm-copilot-gateway/1",
+    "Copilot-Integration-Id": "copilot-developer-cli"
+  },
+  "models": [
+    {
+      "id": "gpt-6-astra",
+      "context_window_tokens": 1000000,
+      "max_input_tokens": 872000,
+      "max_output_tokens": 128000,
+      "reasoning_efforts": ["low", "medium", "high", "xhigh", "max"]
+    }
+  ]
+}
