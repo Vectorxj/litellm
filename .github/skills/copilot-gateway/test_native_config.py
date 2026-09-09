@@ -180,6 +180,31 @@ def test_active_codex_profile_requires_explicit_configuration() -> None:
     assert "active Codex profile" in result.message
 
 
+def test_claude_only_native_configuration_leaves_invalid_codex_settings_untouched(tmp_path: Path) -> None:
+    home: Final = tmp_path / "home"
+    paths: Final = Paths(kit=KIT, state=tmp_path / "state")
+    write_originals(home)
+    codex: Final = home / ".codex/config.toml"
+    codex.write_bytes(b"[invalid Codex configuration")
+    selection: Final = SELECTION.model_copy(update={"claude_only": True, "codex_model": "gpt-unqualified"})
+    plan: Final = plan_native_clients(paths, CHECKPOINT, selection, {}, home)
+    assert not isinstance(plan, Problem)
+    assert tuple(update.client for update in plan) == ("claude",)
+    backup: Final = configure_native_clients(paths, plan)
+    assert isinstance(backup, Path)
+    assert codex.read_bytes() == b"[invalid Codex configuration"
+    assert tuple(path.name for path in backup.iterdir()) == ("claude-settings.json",)
+    assert (backup / "claude-settings.json").read_bytes() == ORIGINAL_CLAUDE
+    claude: Final = json.loads((home / ".claude/settings.json").read_text())
+    assert claude["model"] == "gpt-6-astra"
+    assert claude["env"]["KEEP_ME"] == "unchanged"
+    assert claude["env"]["CLAUDE_CODE_SUBAGENT_MODEL_FORCE"] == "1"
+    assert claude["permissions"]["allow"] == ["Read"]
+    again: Final = plan_native_clients(paths, CHECKPOINT, selection, {}, home)
+    assert not isinstance(again, Problem)
+    assert configure_native_clients(paths, again) is None
+
+
 def test_native_config_homes_follow_client_environment(tmp_path: Path) -> None:
     paths: Final = Paths(kit=KIT, state=tmp_path / "state")
     codex_home: Final = tmp_path / "custom-codex"

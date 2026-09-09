@@ -51,6 +51,23 @@ This checkpoint targets the standard `github.com` Copilot API host. Enterprise o
 
 The Claude Code model is required explicitly. `--codex-model` overrides the pinned Codex default, but either model must already be qualified in `checkpoint.json`. `--port` selects another unprivileged port if 4000 is occupied
 
+### Configure only Claude Code
+
+Use `--claude-only` to leave Codex entirely unconfigured. This mode uses the native Claude Code executable already on `PATH`, rather than installing npm clients. The qualified native version is 2.1.266, recorded separately as `native_claude_version` in `checkpoint.json`. The npm-based two-client checkpoint remains on Claude Code 2.1.220
+
+```bash
+claude install 2.1.266
+
+./.github/skills/copilot-gateway/bootstrap.sh setup \
+  --token-file /absolute/private/path/copilot-token \
+  --claude-model gpt-6-astra \
+  --claude-only
+```
+
+Start `bootstrap.sh serve` in another terminal, then run `bootstrap.sh configure-clients`. The saved selection makes that command back up and merge only Claude Code settings. It does not read or modify native Codex settings, generate an isolated Codex profile, download its prompt, or install either npm client
+
+The native Claude configuration also sets `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1`, supported since 2.1.257, so explicit subagent model overrides cannot escape the selected backend. Automatic client updates stay disabled after setup to preserve the qualified version. A later `claude update` requires requalifying the native version
+
 ## Start the server and clients
 
 Keep the server in its own terminal:
@@ -77,7 +94,7 @@ Original files are copied byte for byte into a private `client-backups/native-*`
 
 Invalid, read-only, symlink-managed, or concurrently changed configurations are rejected instead of overwritten. An active Codex profile must be configured explicitly because it takes precedence over `config.toml`. Project settings, command-line options, and managed policy can still override user-level defaults
 
-The native clients must already be on `PATH` at the qualified versions. This command does not replace global executables, and ordinary native launches do not have the isolated launcher's version guard. Requalify after upgrading clients
+The selected native clients must already be on `PATH` at the qualified versions. This command does not replace global executables, and ordinary native launches do not have the isolated launcher's version guard. Requalify after upgrading clients
 
 Native commands inherit your shell environment. If you use a forward proxy, include `127.0.0.1`, `localhost`, and `::1` in `NO_PROXY` so gateway requests stay local
 

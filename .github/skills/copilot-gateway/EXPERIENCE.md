@@ -182,6 +182,49 @@ Both files matched the marker byte for byte. Codex emitted a native `file_change
 
 The empty MCP configuration scoped the smoke check to local file tools; it is not part of normal client configuration. A second `configure-clients` run produced no additional backup or setting change
 
+## Native Claude-only setup
+
+Qualified on 2026-09-09 with the native Claude Code 2.1.266 updater release and the same authorized `gpt-6-astra` catalog limits. The installed client was updated with `claude update`. At qualification time, npm advertised 2.1.258 and returned HTTP 404 for the exact 2.1.266 package, so replacing the package lock with that native version would not reproduce a working installation
+
+The checkpoint records 2.1.266 separately as `native_claude_version`. The existing npm client pins and lock remain unchanged. `setup --claude-only` checks the native executable, generates only the server and Claude profile, and does not download a Codex prompt or install npm clients. The saved selection makes `configure-clients` inspect and merge only Claude settings
+
+The native mode sets both `CLAUDE_CODE_SUBAGENT_MODEL=gpt-6-astra` and `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1`. Since 2.1.251, the default variable alone no longer overrides explicit subagent model definitions. The force variable is documented starting in 2.1.257:
+
+https://code.claude.com/docs/en/sub-agents#run-every-subagent-on-one-model
+
+With the foreground server running, an authenticated Messages request returned HTTP 200 and `COPILOT_GATEWAY_MESSAGES_OK`. An unauthenticated Messages request returned HTTP 401
+
+From a disposable directory containing only `marker.txt`, the native checks were:
+
+```bash
+claude --print \
+  'Read marker.txt using the Read tool. Create native-copy.txt with exactly the same contents using an available file editing tool, then read it back. Do not change other files or use the network. Finally reply exactly NATIVE_CLAUDE_OK.' \
+  --no-session-persistence --output-format stream-json --verbose \
+  --tools Read,Write,Edit --allowedTools Read,Write,Edit \
+  --strict-mcp-config --mcp-config '{"mcpServers":{}}'
+
+cmp marker.txt native-copy.txt
+
+claude --print \
+  'Use the Agent tool to delegate to the gateway-checker subagent. Ask it to read marker.txt with the Read tool and report its exact contents. Do not read the marker yourself. Wait for its result and reply with the marker value only. Do not write files or use the network.' \
+  --no-session-persistence --output-format stream-json --verbose \
+  --tools Agent,Read --allowedTools Agent,Read \
+  --strict-mcp-config --mcp-config '{"mcpServers":{}}' \
+  --agents '{"gateway-checker":{"description":"Reads the gateway marker using a tool","prompt":"Read marker.txt using Read and report its exact contents. Do not modify files or use the network.","model":"claude-gateway-override-probe","tools":["Read"]}}'
+```
+
+The first run emitted `Read`, `Write`, and `Read`, returned `NATIVE_CLAUDE_OK`, and produced a byte-identical copy. The second emitted an `Agent` call for `gateway-checker` and a child `Read` event linked by `parent_tool_use_id`. That child used `gpt-6-astra` despite its deliberately conflicting model definition, and the final response matched the marker. Both results had `is_error: false` and reported only `gpt-6-astra` in model usage
+
+These were normal native launches, without `--bare`, an explicit model argument, or wrapper-provided credentials. Existing Claude effort settings survived, its original settings were backed up, and a repeated native configuration run made no additional changes. The native Codex configuration remained byte-identical, and no isolated Codex profile or npm client directory was created
+
+Claude Code 2.1.266 also printed the following nonfatal diagnostic for the custom model:
+
+```text
+[claude-code:unrecognized_model] {"model":"gpt-6-astra","query_source":"sdk"}
+```
+
+The diagnostic was not suppressed or replaced with fabricated model metadata. The real tool workflows still completed through the gateway. This remains a cross-provider compatibility setup, not official support for a non-Claude backend. A pinned model ID does not freeze the provider's model weights
+
 ## Operator references
 
 Public prior art supports separating GitHub OAuth credentials from short-lived Copilot API credentials and treating the integration ID as part of model discovery. The following bridge research independently recorded a legacy catalog under the VS Code integration identity and newer models under the documented CLI/SDK default. These are version-specific observations, not a reason to bypass account policy or automatically switch identities after an error

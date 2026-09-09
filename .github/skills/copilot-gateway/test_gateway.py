@@ -30,6 +30,8 @@ from gateway import (
     configure,
     fetch_catalog,
     fetch_codex_prompt,
+    install_clients,
+    launch,
     parse_options,
     private_directory,
     provided_token,
@@ -153,6 +155,39 @@ def test_unavailable_model_is_rejected_before_writing_credentials(tmp_path: Path
     assert isinstance(result, Problem)
     assert "No fallback" in result.message
     assert not paths.state.exists()
+
+
+def test_claude_only_setup_skips_codex_and_uses_the_native_client(tmp_path: Path) -> None:
+    options: Final = parse_options(
+        ("setup", "--token-env", "TEST_TOKEN", "--claude-model", "gpt-6-astra", "--claude-only")
+    )
+    selection: Final = SELECTION.model_copy(
+        update={"claude_only": options.claude_only, "codex_model": "gpt-unqualified"}
+    )
+    paths: Final = Paths(kit=KIT, state=tmp_path / "gateway")
+    assert configure(paths, CHECKPOINT, selection, TOKEN, CATALOG, "") is None
+    assert not (paths.state / "codex").exists()
+    assert not (paths.state / "clients").exists()
+    assert json.loads((paths.state / "selection.json").read_text())["claude_only"] is True
+    claude: Final = json.loads((paths.state / "claude/settings.json").read_text())
+    assert claude["model"] == "gpt-6-astra"
+    assert claude["env"]["CLAUDE_CODE_SUBAGENT_MODEL"] == "gpt-6-astra"
+    assert claude["env"]["CLAUDE_CODE_SUBAGENT_MODEL_FORCE"] == "1"
+    proxy: Final = json.loads(paths.proxy_config.read_text())
+    assert tuple(model["model_name"] for model in proxy["model_list"]) == ("gpt-6-astra",)
+
+    binaries: Final = tmp_path / "bin"
+    binaries.mkdir()
+    native: Final = binaries / "claude"
+    native.write_text(f"#!/bin/sh\nprintf '%s\\n' '{CHECKPOINT.native_claude_version} (Claude Code)'\n")
+    native.chmod(0o700)
+    assert install_clients(paths, CHECKPOINT, selection, {"PATH": str(binaries)}) is None
+    assert not (paths.state / "clients").exists()
+    native.write_text("#!/bin/sh\nprintf '%s\\n' 'unexpected-version'\n")
+    assert isinstance(install_clients(paths, CHECKPOINT, selection, {"PATH": str(binaries)}), Problem)
+    blocked: Final = launch(paths, CHECKPOINT, selection, Options(command="codex"), {})
+    assert isinstance(blocked, Problem)
+    assert "Codex is not configured" in blocked.message
 
 
 def test_unpinned_mapping_is_rejected() -> None:

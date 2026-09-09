@@ -45,6 +45,7 @@ class Options(BaseModel):
     token_stdin: bool = False
     prompt_token: bool = False
     claude_model: str | None = None
+    claude_only: bool = False
     codex_model: str | None = None
     port: int = Field(default=4000, ge=1024, le=65535)
     client_args: tuple[str, ...] = ()
@@ -105,10 +106,15 @@ def parse_options(argv: Sequence[str]) -> Options:
     setup: Final = commands.add_parser("setup")
     add_token_options(setup)
     setup.add_argument("--claude-model", required=True)
+    setup.add_argument(
+        "--claude-only",
+        action="store_true",
+        help="Use the qualified native Claude Code client without configuring Codex.",
+    )
     setup.add_argument("--codex-model")
     setup.add_argument("--port", type=int, default=4000)
     commands.add_parser("serve")
-    commands.add_parser("configure-clients", help="Back up and merge standard Codex and Claude Code settings.")
+    commands.add_parser("configure-clients", help="Back up and merge the selected native client settings.")
     codex: Final = commands.add_parser("codex")
     codex.add_argument("client_args", nargs=argparse.REMAINDER)
     claude: Final = commands.add_parser("claude")
@@ -262,7 +268,9 @@ def configure(
     catalog_problem: Final = validate_catalog(pins, catalog)
     if catalog_problem is not None:
         return catalog_problem
-    directories: Final = (paths.state, paths.state / "codex", paths.state / "claude", paths.state / "clients")
+    directories: Final = (paths.state, paths.state / "claude") + (
+        () if selection.claude_only else (paths.state / "codex", paths.state / "clients")
+    )
     directory_problem: Final = next(filter(None, map(private_directory, directories)), None)
     if directory_problem is not None:
         return directory_problem
@@ -273,27 +281,34 @@ def configure(
     )
     if isinstance(key, Problem):
         return key
-    codex_pin: Final = next(pin for pin in pins if pin.id == selection.codex_model)
+    packaged_files: Final = tuple(
+        entry
+        for pin in pins
+        if not selection.claude_only and pin.id == selection.codex_model
+        for entry in (
+            (
+                paths.state / "codex/config.toml",
+                codex_configuration(checkpoint, selection, pin, paths.state / "codex/model-catalog.json"),
+            ),
+            (
+                paths.state / "codex/model-catalog.json",
+                json.dumps(codex_catalog(checkpoint, pin, codex_prompt), indent=2) + "\n",
+            ),
+            (paths.state / "codex/prompt.md", codex_prompt),
+            (paths.state / "clients/package.json", (paths.kit / "package.json").read_text(encoding="utf-8")),
+            (paths.state / "clients/package-lock.json", (paths.kit / "package-lock.json").read_text(encoding="utf-8")),
+        )
+    )
     files: Final = (
         (paths.token, token.get_secret_value() + "\n"),
         (paths.key, key.get_secret_value() + "\n"),
         (paths.proxy_config, json.dumps(proxy_configuration(checkpoint, pins), indent=2) + "\n"),
-        (
-            paths.state / "codex/config.toml",
-            codex_configuration(checkpoint, selection, codex_pin, paths.state / "codex/model-catalog.json"),
-        ),
-        (
-            paths.state / "codex/model-catalog.json",
-            json.dumps(codex_catalog(checkpoint, codex_pin, codex_prompt), indent=2) + "\n",
-        ),
-        (paths.state / "codex/prompt.md", codex_prompt),
+        *packaged_files,
         (paths.state / "claude/settings.json", json.dumps(claude_configuration(selection), indent=2) + "\n"),
         (
             paths.state / "curl-headers",
             f"Authorization: Bearer {key.get_secret_value()}\nContent-Type: application/json\n",
         ),
-        (paths.state / "clients/package.json", (paths.kit / "package.json").read_text(encoding="utf-8")),
-        (paths.state / "clients/package-lock.json", (paths.kit / "package-lock.json").read_text(encoding="utf-8")),
         (paths.state / "selection.json", selection.model_dump_json(indent=2) + "\n"),
     )
     return next(filter(None, starmap(write_private, files)), None)
@@ -308,8 +323,15 @@ def verify_client(executable: Path, expected: str, environ: Mapping[str, str]) -
     return None
 
 
-def install_clients(paths: Paths, checkpoint: Checkpoint, environ: Mapping[str, str]) -> Problem | None:
+def install_clients(
+    paths: Paths, checkpoint: Checkpoint, selection: Selection, environ: Mapping[str, str]
+) -> Problem | None:
     environment: Final = clean_environment(environ)
+    if selection.claude_only:
+        native: Final = shutil.which("claude", path=environ.get("PATH"))
+        if native is None:
+            return Problem(f"Install native Claude Code {checkpoint.native_claude_version} before using --claude-only.")
+        return verify_client(Path(native), f"{checkpoint.native_claude_version} (Claude Code)", environment)
     install: Final = subprocess.run(
         ("npm", "ci", "--ignore-scripts", "--no-audit", "--no-fund", "--prefix", str(paths.state / "clients")),
         env=environment,
@@ -334,10 +356,15 @@ def configure_standard_clients(
     updates: Final = plan_native_clients(paths, checkpoint, selection, environ, Path.home())
     if isinstance(updates, Problem):
         return updates
-    for name, version in (
-        ("codex", f"codex-cli {checkpoint.codex_version}"),
-        ("claude", f"{checkpoint.claude_version} (Claude Code)"),
-    ):
+    claude_version: Final = checkpoint.native_claude_version if selection.claude_only else checkpoint.claude_version
+    versions: Final = tuple(
+        (
+            update.client,
+            f"codex-cli {checkpoint.codex_version}" if update.client == "codex" else f"{claude_version} (Claude Code)",
+        )
+        for update in updates
+    )
+    for name, version in versions:
         if (executable := shutil.which(name, path=environ.get("PATH"))) is None:
             return Problem(f"Install the qualified native {name} client before configuring its standard settings.")
         if (version_problem := verify_client(Path(executable), version, clean_environment(environ))) is not None:
@@ -356,8 +383,11 @@ def configure_standard_clients(
     if response.status_code != 200:
         return Problem(f"The local server returned HTTP {response.status_code}. Start the matching gateway first.")
     advertised: Final = frozenset(model.id for model in Catalog.model_validate_json(response.content).data)
-    if not frozenset((selection.codex_model, selection.claude_model)).issubset(advertised):
-        return Problem("The running server does not advertise both selected client models.")
+    pins: Final = selected_pins(checkpoint, selection)
+    if isinstance(pins, Problem):
+        return pins
+    if not frozenset(pin.id for pin in pins).issubset(advertised):
+        return Problem("The running server does not advertise the selected client models.")
     result: Final = configure_native_clients(paths, updates)
     if isinstance(result, Problem):
         return result
@@ -365,7 +395,8 @@ def configure_standard_clients(
         sys.stdout.write(f"Client configuration backup directory: {result}\n")
     for update in updates:
         sys.stdout.write(f"Configured native {update.client}: {update.target}\n")
-    sys.stdout.write("Run codex or claude directly. Keep the gateway server running.\n")
+    clients: Final = " or ".join(update.client for update in updates)
+    sys.stdout.write(f"Run {clients} directly. Keep the gateway server running.\n")
     return None
 
 
@@ -403,13 +434,20 @@ def launch(
                 PROXY_KEY_ENV: key.get_secret_value(),
             },
         )
-    executable: Final = paths.state / "clients/node_modules/.bin" / options.command
+    if selection.claude_only and options.command == "codex":
+        return Problem("Codex is not configured in this Claude-only gateway.")
+    native: Final = shutil.which("claude", path=environ.get("PATH")) if selection.claude_only else None
+    if selection.claude_only and native is None:
+        return Problem(f"Install native Claude Code {checkpoint.native_claude_version} before launching Claude.")
+    executable: Final = (
+        Path(native) if native is not None else paths.state / "clients/node_modules/.bin" / options.command
+    )
     if not executable.is_file():
         return Problem("Pinned clients are missing. Run setup again to install them from package-lock.json.")
     expected_version: Final = (
         f"codex-cli {checkpoint.codex_version}"
         if options.command == "codex"
-        else f"{checkpoint.claude_version} (Claude Code)"
+        else f"{checkpoint.native_claude_version if selection.claude_only else checkpoint.claude_version} (Claude Code)"
     )
     version_problem: Final = verify_client(executable, expected_version, base_env)
     if version_problem is not None:
@@ -476,7 +514,7 @@ def run(options: Options, paths: Paths, environ: Mapping[str, str]) -> Problem |
             )
             return None
         with httpx.Client() as public_client:
-            codex_prompt: Final = fetch_codex_prompt(public_client, paths, checkpoint)
+            codex_prompt: Final = "" if options.claude_only else fetch_codex_prompt(public_client, paths, checkpoint)
         if isinstance(codex_prompt, Problem):
             return codex_prompt
         if options.claude_model is None:
@@ -484,6 +522,7 @@ def run(options: Options, paths: Paths, environ: Mapping[str, str]) -> Problem |
         selection: Final = Selection(
             codex_model=options.codex_model or checkpoint.default_codex_model,
             claude_model=options.claude_model,
+            claude_only=options.claude_only,
             port=options.port,
             checkpoint=checkpoint.checkpoint,
             checkpoint_sha256=checkpoint_sha256,
@@ -491,12 +530,13 @@ def run(options: Options, paths: Paths, environ: Mapping[str, str]) -> Problem |
         configure_problem: Final = configure(paths, checkpoint, selection, token, catalog, codex_prompt)
         if configure_problem is not None:
             return configure_problem
-        install_problem: Final = install_clients(paths, checkpoint, environ)
+        install_problem: Final = install_clients(paths, checkpoint, selection, environ)
         if install_problem is not None:
             return install_problem
+        codex_status: Final = "" if selection.claude_only else f"Codex model: {selection.codex_model}; "
         sys.stdout.write(
             f"Configured {checkpoint.checkpoint} in {paths.state}\n"
-            f"Codex model: {selection.codex_model}; Claude Code model: {selection.claude_model}\n"
+            f"{codex_status}Claude Code model: {selection.claude_model}\n"
             "Credentials were saved with private permissions, not printed. Start the server with bootstrap.sh serve.\n"
         )
         return None

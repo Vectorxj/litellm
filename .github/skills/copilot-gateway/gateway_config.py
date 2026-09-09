@@ -36,6 +36,7 @@ class Checkpoint(BaseModel):
     )
     codex_prompt_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     claude_version: str
+    native_claude_version: str
     default_codex_model: str
     reasoning_effort: Literal["low", "medium", "high", "xhigh", "max"]
     upstream_headers: Mapping[str, str]
@@ -47,6 +48,7 @@ class Selection(BaseModel):
 
     codex_model: str
     claude_model: str
+    claude_only: bool = False
     port: int = Field(ge=1024, le=65535)
     checkpoint: str
     checkpoint_sha256: str
@@ -80,7 +82,9 @@ class Problem:
 
 
 def selected_pins(checkpoint: Checkpoint, selection: Selection) -> tuple[ModelPin, ...] | Problem:
-    requested: Final = frozenset((selection.codex_model, selection.claude_model))
+    requested: Final = frozenset(
+        (selection.claude_model,) if selection.claude_only else (selection.codex_model, selection.claude_model)
+    )
     available: Final = frozenset(model.id for model in checkpoint.models)
     missing: Final = requested - available
     if missing:
@@ -212,6 +216,7 @@ def claude_environment(selection: Selection) -> dict[str, str]:
         "ANTHROPIC_DEFAULT_FABLE_MODEL": selection.claude_model,
         "ANTHROPIC_SMALL_FAST_MODEL": selection.claude_model,
         "CLAUDE_CODE_SUBAGENT_MODEL": selection.claude_model,
+        **({"CLAUDE_CODE_SUBAGENT_MODEL_FORCE": "1"} if selection.claude_only else {}),
         "ENABLE_TOOL_SEARCH": "false",
         "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
         "DISABLE_AUTOUPDATER": "1",

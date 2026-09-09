@@ -117,39 +117,42 @@ def plan_native_clients(
     selection: Selection,
     environ: Mapping[str, str],
     home: Path,
-) -> tuple[ClientUpdate, ClientUpdate] | Problem:
+) -> tuple[ClientUpdate, ...] | Problem:
     pins: Final = selected_pins(checkpoint, selection)
     if isinstance(pins, Problem):
         return pins
-    codex_target: Final = Path(environ.get("CODEX_HOME") or str(home / ".codex")).expanduser() / "config.toml"
     claude_target: Final = (
         Path(environ.get("CLAUDE_CONFIG_DIR") or str(home / ".claude")).expanduser() / "settings.json"
     )
-    codex_original: Final = configuration_bytes(codex_target, paths.repo)
     claude_original: Final = configuration_bytes(claude_target, paths.repo)
-    if isinstance(codex_original, Problem):
-        return codex_original
     if isinstance(claude_original, Problem):
         return claude_original
+    claude_rendered: Final = native_claude_config(
+        claude_original.decode("utf-8") if claude_original is not None else None, selection, paths.key
+    )
+    if isinstance(claude_rendered, Problem):
+        return claude_rendered
+    claude_update: Final = ClientUpdate("claude", claude_target, claude_original, claude_rendered)
+    if selection.claude_only:
+        return (claude_update,)
+    codex_target: Final = Path(environ.get("CODEX_HOME") or str(home / ".codex")).expanduser() / "config.toml"
+    codex_original: Final = configuration_bytes(codex_target, paths.repo)
+    if isinstance(codex_original, Problem):
+        return codex_original
     codex_pin: Final = next(pin for pin in pins if pin.id == selection.codex_model)
     generated: Final = codex_configuration(checkpoint, selection, codex_pin, paths.state / "codex/model-catalog.json")
     codex_rendered: Final = native_codex_config(
         codex_original.decode("utf-8") if codex_original is not None else "", generated, paths.key
     )
-    claude_rendered: Final = native_claude_config(
-        claude_original.decode("utf-8") if claude_original is not None else None, selection, paths.key
-    )
     if isinstance(codex_rendered, Problem):
         return codex_rendered
-    if isinstance(claude_rendered, Problem):
-        return claude_rendered
     return (
         ClientUpdate("codex", codex_target, codex_original, codex_rendered),
-        ClientUpdate("claude", claude_target, claude_original, claude_rendered),
+        claude_update,
     )
 
 
-def configure_native_clients(paths: Paths, updates: tuple[ClientUpdate, ClientUpdate]) -> Path | Problem | None:
+def configure_native_clients(paths: Paths, updates: tuple[ClientUpdate, ...]) -> Path | Problem | None:
     current: Final = tuple(configuration_bytes(update.target, paths.repo) for update in updates)
     error: Final = next((value for value in current if isinstance(value, Problem)), None)
     if error is not None:

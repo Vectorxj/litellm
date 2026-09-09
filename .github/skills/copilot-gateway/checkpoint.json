@@ -9,6 +9,7 @@
   "codex_prompt_url": "https://raw.githubusercontent.com/openai/codex/rust-v0.146.0/codex-rs/models-manager/prompt.md",
   "codex_prompt_sha256": "ac8ae107a0d72fe3476b430afb161ea4e67da2e446d778aefc44828160559807",
   "claude_version": "2.1.220",
+  "native_claude_version": "2.1.266",
   "default_codex_model": "gpt-6-astra",
   "reasoning_effort": "high",
   "upstream_headers": {

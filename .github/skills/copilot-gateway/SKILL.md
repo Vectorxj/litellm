@@ -21,6 +21,8 @@ Recheck subagent model precedence when upgrading the client. Claude Code 2.1.257
 
 Run the commands from `README.md` using the supplied credential source. Keep the private state directory outside the checkout
 
+When only Claude Code is requested, use `setup --claude-only` with the explicitly selected model and credential source. This uses the already-installed native Claude version pinned as `native_claude_version`, skips npm client installation and all Codex configuration, and makes `configure-clients` change only Claude Code settings
+
 When the user asks to run normal `codex` and `claude` commands, use the standard configuration workflow: start the server, then run `configure-clients` to back up and merge their standard settings. This is an explicit opt-in because it changes the default backend. Do not edit saved login files or put tokens in TOML, JSON, or shell profiles. The command uses the clients' supported key helpers instead
 
 Otherwise, use the isolated launchers and leave personal client configurations untouched. Do not automatically import personal hooks, MCP servers, or plugins into the isolated profiles
@@ -31,7 +33,7 @@ Use the committed checkpoint and package lock without replacing version pins wit
 
 Start the server on loopback only. Preserve permission checks and sandboxing. Never use approval bypass flags merely to make a smoke check pass
 
-After startup, check the actual HTTP response from the proxy, including refusal of unauthenticated inference requests. Then run both client smoke checks in a disposable directory containing only a harmless marker file. Check that each client actually reads the marker with a tool and returns its value. Do not substitute a mocked provider or a successful `/health` response for working inference
+After startup, check the actual HTTP response from the proxy, including refusal of unauthenticated inference requests. Then run the selected clients' smoke checks in a disposable directory containing only a harmless marker file. Check that each selected client actually reads the marker with a tool and returns its value. Do not run Codex when only Claude Code was requested. Do not substitute a mocked provider or a successful `/health` response for working inference
 
 For standard configuration, validate the actual native `codex` and `claude` commands without wrapper-provided credentials. Do not use Claude's `--bare` mode for that check because it skips normal settings loading. Keep the originals in the private backup directory and confirm that unrelated settings and previous providers survived
 
@@ -48,6 +50,8 @@ Do not introduce global `drop_params`, fabricated thinking signatures, fixed `X-
 Only enable hosted web search, deferred tool search, WebSocket transport, or provider-specific context features after checking the actual API behavior. Disabling Tool Search must leave ordinary MCP tools usable. Keep unsupported hosted services explicit rather than returning invented successful results
 
 Update `checkpoint.json` with the qualified model IDs, authorized token limits, exact client/runtime versions, repository source revision, and lock hash. Update `package.json` and regenerate `package-lock.json` with npm when client pins change. If an API or client schema changed, update the scripts and meaningful regression tests in this same directory
+
+Native Claude and npm releases can differ. For a native-only upgrade, qualify and update `native_claude_version` without changing the separately pinned npm checkpoint or silently downgrading the installed client. Exercise a real subagent with an explicit conflicting model definition to confirm the force setting works in the new version
 
 Record the date, source links, exact non-secret commands, observed outputs, and remaining limitations in `EXPERIENCE.md`. A model ID pin does not make provider-side model weights immutable. Explain that distinction
 
