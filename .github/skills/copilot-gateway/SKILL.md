@@ -19,15 +19,21 @@ Recheck subagent model precedence when upgrading the client. Claude Code 2.1.257
 
 ## Reproduce an existing checkpoint
 
-Run the commands from `README.md` using the supplied credential source. Keep the private state directory outside the checkout. Do not edit the user's normal `~/.codex` or `~/.claude` configuration
+Run the commands from `README.md` using the supplied credential source. Keep the private state directory outside the checkout
+
+When the user asks to run normal `codex` and `claude` commands, use the standard configuration workflow: start the server, then run `configure-clients` to back up and merge their standard settings. This is an explicit opt-in because it changes the default backend. Do not edit saved login files or put tokens in TOML, JSON, or shell profiles. The command uses the clients' supported key helpers instead
+
+Otherwise, use the isolated launchers and leave personal client configurations untouched. Do not automatically import personal hooks, MCP servers, or plugins into the isolated profiles
 
 Review shared skills and managed policies separately. A custom `CODEX_HOME` does not relocate `$HOME/.agents/skills`, and neither client profile bypasses organization policy
 
 Use the committed checkpoint and package lock without replacing version pins with `latest`. The script must reject unavailable models, unsupported Responses endpoints, source drift, and limits above the authorized catalog. Do not bypass those checks or silently choose an older model
 
-Start the server on loopback only. Use the isolated launch commands for Codex and Claude Code. Preserve permission checks and sandboxing. Never use approval bypass flags merely to make a smoke check pass
+Start the server on loopback only. Preserve permission checks and sandboxing. Never use approval bypass flags merely to make a smoke check pass
 
 After startup, check the actual HTTP response from the proxy, including refusal of unauthenticated inference requests. Then run both client smoke checks in a disposable directory containing only a harmless marker file. Check that each client actually reads the marker with a tool and returns its value. Do not substitute a mocked provider or a successful `/health` response for working inference
+
+For standard configuration, validate the actual native `codex` and `claude` commands without wrapper-provided credentials. Do not use Claude's `--bare` mode for that check because it skips normal settings loading. Keep the originals in the private backup directory and confirm that unrelated settings and previous providers survived
 
 Use a foreground server under the agent's process manager while testing. Do not silently install a system service or leave a detached daemon. Explain how the user should run the foreground server afterward
 

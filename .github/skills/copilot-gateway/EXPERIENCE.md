@@ -148,6 +148,40 @@ Hosted WebSearch remains disabled. Deferred Tool Search remains disabled, so ord
 
 Anthropic does not officially support routing Claude Code to non-Claude models. This checkpoint is an empirically qualified LiteLLM integration, not an Anthropic support guarantee or a promise that Copilot's internal API will remain unchanged
 
+## Standard native client configuration
+
+The `configure-clients` mode was qualified against the same running server using the installed native binaries, without a launcher, exported API key, explicit model override, or Claude `--bare` mode
+
+Codex 0.146.0 supports command-backed provider authentication through `model_providers.<name>.auth`. Its auth implementation captures stdout and trims it as the bearer token. Claude Code's `apiKeyHelper` supports the corresponding private-file workflow. Both generated configurations use `/bin/cat` to read the gateway's private proxy key, so no token needs to be copied into TOML or JSON
+
+https://github.com/openai/codex/blob/rust-v0.146.0/codex-rs/login/src/auth/external_bearer.rs
+
+https://code.claude.com/docs/en/llm-gateway-connect#rotate-credentials-with-apikeyhelper
+
+The original standard configuration files were backed up before switching the default backend. Previous Codex provider definitions, project trust entries, sandbox/approval preferences, unrelated Claude settings, and existing permission rules survived. Native clients can update their own project history while running; that is separate from the configuration merge
+
+The native tool checks used these commands from a disposable workspace containing `marker.txt`:
+
+```bash
+codex exec --strict-config --sandbox workspace-write --ephemeral \
+  --skip-git-repo-check --cd "$WORK" --json \
+  'Read marker.txt using a tool. Use apply_patch to create native-codex.txt containing exactly the same contents. Do not modify other files or use the network. Reply NATIVE_CODEX_OK when done.' \
+  </dev/null
+
+(
+  cd "$WORK"
+  claude --print \
+    'Read marker.txt using Read. Use Edit to create native-claude.txt containing exactly the same contents. Do not modify other files or use the network. Reply NATIVE_CLAUDE_OK when done.' \
+    --no-session-persistence --output-format stream-json --verbose \
+    --tools Read,Edit --allowedTools Read,Edit \
+    --strict-mcp-config --mcp-config '{"mcpServers":{}}'
+)
+```
+
+Both files matched the marker byte for byte. Codex emitted a native `file_change` event and `NATIVE_CODEX_OK`; Claude Code used Read/Edit and returned `NATIVE_CLAUDE_OK` with `is_error: false`. The running gateway recorded four Responses requests and four Messages requests during these checks
+
+The empty MCP configuration scoped the smoke check to local file tools; it is not part of normal client configuration. A second `configure-clients` run produced no additional backup or setting change
+
 ## Operator references
 
 Public prior art supports separating GitHub OAuth credentials from short-lived Copilot API credentials and treating the integration ID as part of model discovery. The following bridge research independently recorded a legacy catalog under the VS Code integration identity and newer models under the documented CLI/SDK default. These are version-specific observations, not a reason to bypass account policy or automatically switch identities after an error

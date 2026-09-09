@@ -59,7 +59,31 @@ Keep the server in its own terminal:
 ./.github/skills/copilot-gateway/bootstrap.sh serve
 ```
 
-In another terminal, launch either isolated client:
+### Use the normal `codex` and `claude` commands
+
+With the server running, close existing client sessions and configure their standard settings once:
+
+```bash
+./.github/skills/copilot-gateway/bootstrap.sh configure-clients
+```
+
+Then run `codex` or `claude` directly from the project you want to work on. No launcher or exported API key is needed
+
+This opt-in command merges `~/.codex/config.toml` and `~/.claude/settings.json`, honoring `CODEX_HOME` or `CLAUDE_CONFIG_DIR` when set. It preserves previous Codex providers, comments, project trust, sandbox and approval preferences, and unrelated Claude settings. Existing Claude allow/deny rules are preserved, with unsupported WebSearch added to the deny list
+
+The configurations contain key-helper commands, not tokens. Codex's provider `auth.command` and Claude's `apiKeyHelper` read the private local `proxy-key` file automatically. Existing Claude authentication environment overrides are cleared in the settings so they do not defeat the helper. Copilot credentials stay server-side, and neither client's saved login file is changed
+
+Original files are copied byte for byte into a private `client-backups/native-*` directory under gateway state before modification. Their backup paths are printed without contents. Updated config files have mode `0600`. Repeating the command without changes does not create more backups. To undo a switch, close the clients and copy the matching backed-up file to its original location
+
+Invalid, read-only, symlink-managed, or concurrently changed configurations are rejected instead of overwritten. An active Codex profile must be configured explicitly because it takes precedence over `config.toml`. Project settings, command-line options, and managed policy can still override user-level defaults
+
+The native clients must already be on `PATH` at the qualified versions. This command does not replace global executables, and ordinary native launches do not have the isolated launcher's version guard. Requalify after upgrading clients
+
+Native commands inherit your shell environment. If you use a forward proxy, include `127.0.0.1`, `localhost`, and `::1` in `NO_PROXY` so gateway requests stay local
+
+### Keep personal configurations unchanged
+
+The isolated launchers remain available without running `configure-clients`:
 
 ```bash
 ./.github/skills/copilot-gateway/bootstrap.sh codex
@@ -78,7 +102,7 @@ Arguments after `--` are forwarded to the selected client:
 
 Keep a Claude Code prompt before variadic flags such as `--tools` and `--allowedTools`, or use the client's positional argument separator. Otherwise the client can consume the prompt as another tool name
 
-The launcher preserves your current working directory. It does not bypass client approvals or sandboxes. It does not edit `~/.codex`, `~/.claude`, shell startup files, or the Copilot login. It also does not install or enable a system service
+The isolated launcher preserves your current working directory. It does not bypass client approvals or sandboxes. Only the explicit `configure-clients` command edits standard client settings. Neither mode edits shell startup files or the Copilot login, or installs a system service
 
 ## Private state and isolation
 
@@ -165,7 +189,7 @@ Confirm the trace contains a successful tool invocation and the marker value, no
 
 Copilot CLI can discover the skill under `.github/skills/copilot-gateway`. For another agent, explicitly ask it to read `.github/skills/copilot-gateway/SKILL.md`; no global skill installation is required
 
-A suitable handoff is: "Read `.github/skills/copilot-gateway/SKILL.md`. Configure the committed checkpoint using the private token file I provide. Route Claude Code to `gpt-6-astra`, keep the existing personal client profiles unchanged, and run the real client tool checks"
+A suitable handoff is: "Read `.github/skills/copilot-gateway/SKILL.md`. Configure the committed checkpoint using the private token file I provide. Route Claude Code to `gpt-6-astra`, start the server, back up and merge the standard client settings so I can run `codex` and `claude` directly, and run the real client tool checks"
 
 To inspect currently authorized GPT models without changing the checkpoint:
 
@@ -184,14 +208,16 @@ From the repository root, after installing the repository's locked development d
 
 ```bash
 LITELLM_MODE=PRODUCTION LITELLM_LOCAL_MODEL_COST_MAP=True \
-  uv run --no-sync pytest -q .github/skills/copilot-gateway/test_gateway.py
+  uv run --no-sync pytest -q .github/skills/copilot-gateway
 
 uv run --no-sync ruff check .github/skills/copilot-gateway
 uv run --no-sync ruff format --check .github/skills/copilot-gateway
 uv run --no-sync basedpyright \
   .github/skills/copilot-gateway/gateway.py \
-  .github/skills/copilot-gateway/gateway_config.py
+  .github/skills/copilot-gateway/gateway_config.py \
+  .github/skills/copilot-gateway/gateway_files.py \
+  .github/skills/copilot-gateway/native_config.py
 bash -n .github/skills/copilot-gateway/bootstrap.sh
 ```
 
-The focused tests cover private and idempotent provisioning, explicit model selection, capability checks, credential isolation, integrity verification, and the streamed tool-block compatibility case. Real provider and client checks remain necessary when qualifying a new checkpoint
+The focused tests cover private and idempotent provisioning, explicit model selection, capability checks, credential isolation, integrity verification, streamed tool-block compatibility, and backup-preserving native configuration with working key helpers. Real provider and client checks remain necessary when qualifying a new checkpoint

@@ -5,10 +5,9 @@ import json
 import os
 import platform
 import secrets
-import stat
+import shutil
 import subprocess
 import sys
-import tempfile
 from collections.abc import Mapping, Sequence
 from itertools import starmap
 from pathlib import Path
@@ -32,13 +31,15 @@ from gateway_config import (
     proxy_configuration,
     selected_pins,
 )
+from gateway_files import private_directory, read_secret, write_private
+from native_config import configure_native_clients, plan_native_clients
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError
 
 
 class Options(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", hide_input_in_errors=True)
 
-    command: Literal["catalog", "setup", "serve", "codex", "claude"]
+    command: Literal["catalog", "setup", "serve", "codex", "claude", "configure-clients"]
     token_env: str | None = None
     token_file: Path | None = None
     token_stdin: bool = False
@@ -107,6 +108,7 @@ def parse_options(argv: Sequence[str]) -> Options:
     setup.add_argument("--codex-model")
     setup.add_argument("--port", type=int, default=4000)
     commands.add_parser("serve")
+    commands.add_parser("configure-clients", help="Back up and merge standard Codex and Claude Code settings.")
     codex: Final = commands.add_parser("codex")
     codex.add_argument("client_args", nargs=argparse.REMAINDER)
     claude: Final = commands.add_parser("claude")
@@ -121,44 +123,6 @@ def paths_from_environment(environ: Mapping[str, str]) -> Paths:
         environ.get("COPILOT_GATEWAY_HOME", str(default_state / "litellm-copilot-gateway"))
     ).expanduser()
     return Paths(kit=kit, state=state.absolute())
-
-
-def private_directory(path: Path) -> Problem | None:
-    if path.is_symlink():
-        return Problem(f"Refusing a symlink for private state: {path}")
-    path.mkdir(mode=0o700, parents=True, exist_ok=True)
-    if path.stat().st_uid != os.getuid():
-        return Problem(f"Private state must be owned by the current user: {path}")
-    path.chmod(0o700)
-    return None
-
-
-def write_private(path: Path, content: str) -> Problem | None:
-    if path.is_symlink():
-        return Problem(f"Refusing to replace a symlink: {path}")
-    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent, delete=False) as output:
-        temporary: Final = Path(output.name)
-        try:
-            os.fchmod(output.fileno(), 0o600)
-            output.write(content)
-            output.flush()
-            os.fsync(output.fileno())
-            temporary.replace(path)
-        finally:
-            temporary.unlink(missing_ok=True)
-    return None
-
-
-def read_secret(path: Path) -> SecretStr | Problem:
-    if path.is_symlink() or not path.is_file():
-        return Problem(f"Expected a private regular credential file: {path}")
-    metadata: Final = path.stat()
-    if not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid() or metadata.st_mode & 0o077:
-        return Problem(f"Credential file must be owned by you and have mode 0600 or 0400: {path}")
-    value: Final = path.read_text(encoding="utf-8").strip()
-    if not value or any(character.isspace() for character in value):
-        return Problem("Credential must be one nonempty token with no whitespace.")
-    return SecretStr(value)
 
 
 def provided_token(options: Options, environ: Mapping[str, str]) -> SecretStr | Problem:
@@ -364,6 +328,47 @@ def install_clients(paths: Paths, checkpoint: Checkpoint, environ: Mapping[str, 
     return next(filter(None, (verify_client(path, version, environment) for path, version in executables)), None)
 
 
+def configure_standard_clients(
+    paths: Paths, checkpoint: Checkpoint, selection: Selection, environ: Mapping[str, str]
+) -> Problem | None:
+    updates: Final = plan_native_clients(paths, checkpoint, selection, environ, Path.home())
+    if isinstance(updates, Problem):
+        return updates
+    for name, version in (
+        ("codex", f"codex-cli {checkpoint.codex_version}"),
+        ("claude", f"{checkpoint.claude_version} (Claude Code)"),
+    ):
+        if (executable := shutil.which(name, path=environ.get("PATH"))) is None:
+            return Problem(f"Install the qualified native {name} client before configuring its standard settings.")
+        if (version_problem := verify_client(Path(executable), version, clean_environment(environ))) is not None:
+            return version_problem
+    key: Final = read_secret(paths.key)
+    if isinstance(key, Problem):
+        return key
+    try:
+        with httpx.Client(trust_env=False, timeout=5, follow_redirects=False) as client:
+            response: Final = client.get(
+                f"http://127.0.0.1:{selection.port}/v1/models",
+                headers={"Authorization": f"Bearer {key.get_secret_value()}"},
+            )
+    except httpx.RequestError:
+        return Problem("Cannot reach the local gateway. Start bootstrap.sh serve before configuring native clients.")
+    if response.status_code != 200:
+        return Problem(f"The local server returned HTTP {response.status_code}. Start the matching gateway first.")
+    advertised: Final = frozenset(model.id for model in Catalog.model_validate_json(response.content).data)
+    if not frozenset((selection.codex_model, selection.claude_model)).issubset(advertised):
+        return Problem("The running server does not advertise both selected client models.")
+    result: Final = configure_native_clients(paths, updates)
+    if isinstance(result, Problem):
+        return result
+    if result is not None:
+        sys.stdout.write(f"Client configuration backup directory: {result}\n")
+    for update in updates:
+        sys.stdout.write(f"Configured native {update.client}: {update.target}\n")
+    sys.stdout.write("Run codex or claude directly. Keep the gateway server running.\n")
+    return None
+
+
 def launch(
     paths: Paths, checkpoint: Checkpoint, selection: Selection, options: Options, environ: Mapping[str, str]
 ) -> Problem:
@@ -498,6 +503,8 @@ def run(options: Options, paths: Paths, environ: Mapping[str, str]) -> Problem |
     selection_saved: Final = Selection.model_validate_json((paths.state / "selection.json").read_bytes())
     if selection_saved.checkpoint_sha256 != checkpoint_sha256:
         return Problem("The checkpoint changed since setup. Rerun setup before starting the server or clients.")
+    if options.command == "configure-clients":
+        return configure_standard_clients(paths, checkpoint, selection_saved, environ)
     return launch(paths, checkpoint, selection_saved, options, environ)
 
 
