@@ -106,6 +106,28 @@ The source checkpoint for the packaged client has the same retry default:
 
 https://github.com/openai/codex/blob/rust-v0.146.0/codex-rs/model-provider-info/src/lib.rs
 
+#### Recurrence after retries were enabled
+
+A later failure on 2026-09-10 did occur in a newly started Codex 0.154.0 process with all five recovery attempts active. Between 10:04:35 and 10:05:37 UTC, six requests ended without a terminal Responses event. The client logged five retries and then failed. This rules out stale configuration for that recurrence; bounded retries mitigate transient failures but do not fix every upstream or protocol failure
+
+The user reported the matching public issue:
+
+https://github.com/caozhiyuan/copilot-api/issues/298
+
+That issue distinguishes client WebSocket settings from the other proxy's server-side `useResponsesApiWebSocket` setting. Several commenters reported improvement after disabling the server-side transport. This kit already uses HTTP/SSE on both hops: Codex has `supports_websockets = false`, and LiteLLM's ordinary Responses handler calls its async HTTP client's `post` method. Adding a setting belonging to another proxy would not change that code path
+
+Some comments also suggest a `codex/` model mapping. In that implementation the Codex service uses `chatgpt.com/backend-api` and separate ChatGPT credentials. It is not an equivalent Copilot route and must not be introduced as a silent fallback
+
+The linked request-metadata issue was also checked:
+
+https://github.com/caozhiyuan/copilot-api/issues/308
+
+The inspected request did not contain its unsupported `internal_chat_message_metadata_passthrough` field. Removing unrelated metadata without evidence would not address the observed failure
+
+At investigation time, a synthetic 320,027-token request completed both through this gateway and directly through Copilot. Synthetic tool histories with 602 and 902 input items also completed. A prepared request reconstructed from a private copy of the affected history subsequently completed in both streaming and non-streaming modes, including a streamed generation with its original output-limit behavior. Returned tool calls were not executed, the original session was not modified, and private request captures were not committed
+
+These checks did not reproduce the remaining failure reliably and do not establish its root cause. Do not describe it as permanently fixed, disable reasoning, reduce the advertised context window, change providers, fabricate completion events, or keep increasing retries on this evidence alone. A recurrence needs request-correlated upstream event types, terminal/error metadata, and transport information, without logging prompt content or credentials
+
 ### Runtime dependencies
 
 Installing only the repository's `proxy` extra let successful inference work, but an unauthenticated request returned HTTP 500 because the exception handler imported an absent `prisma` module. Including the locked `proxy-dev` group restored the correct HTTP 401. No database was configured, and the server does not inherit a `DATABASE_URL`
