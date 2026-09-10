@@ -37,6 +37,8 @@ After startup, check the actual HTTP response from the proxy, including refusal 
 
 For standard configuration, validate the actual native `codex` and `claude` commands without wrapper-provided credentials. Do not use Claude's `--bare` mode for that check because it skips normal settings loading. Keep the originals in the private backup directory and confirm that unrelated settings and previous providers survived
 
+Keep Codex's bounded stream recovery enabled with `stream_max_retries = 5`. HTTP request retries do not cover a stream that closes before `response.completed`. Correlate client and server timestamps before changing transport or timeouts. Do not retry partial generations inside the gateway or synthesize successful completion events; leave conversation-aware recovery to Codex and surface exhausted retries
+
 For Claude auto mode, exercise a harmless command that requires classification, such as a Python calculation, without pre-approving Bash. Read and allowlisted tools do not exercise the classifier. Its non-streaming stop sequences are handled by the gateway callback; do not replace this with disabled auto mode, unconditional approval, or globally dropped parameters. A "temporarily unavailable" message can describe a classifier failure while ordinary model inference still works
 
 Use a foreground server under the agent's process manager while testing. Do not silently install a system service or leave a detached daemon. Explain how the user should run the foreground server afterward

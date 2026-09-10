@@ -8,7 +8,7 @@ from typing import Final
 
 import pytest
 import tomllib
-from gateway_config import Checkpoint, Paths, Problem, Selection
+from gateway_config import Checkpoint, Paths, Problem, Selection, codex_configuration
 from native_config import configure_native_clients, native_codex_config, plan_native_clients
 
 KIT: Final = Path(__file__).resolve().parent
@@ -178,6 +178,26 @@ def test_active_codex_profile_requires_explicit_configuration() -> None:
     result: Final = native_codex_config('profile = "work"\n', "", Path("/private/proxy-key"))
     assert isinstance(result, Problem)
     assert "active Codex profile" in result.message
+
+
+def test_native_reconfiguration_restores_bounded_stream_retries(tmp_path: Path) -> None:
+    generated: Final = codex_configuration(CHECKPOINT, SELECTION, CHECKPOINT.models[0], tmp_path / "model-catalog.json")
+    old: Final = generated.replace("stream_max_retries = 5", "stream_max_retries = 0")
+    original: Final = tomllib.loads(old)
+    assert original["model_providers"]["copilot_gateway"]["stream_max_retries"] == 0
+    configured: Final = native_codex_config(old, generated, tmp_path / "proxy-key")
+    assert isinstance(configured, str)
+    result: Final = tomllib.loads(configured)
+    provider: Final = result["model_providers"]["copilot_gateway"]
+    assert provider["stream_max_retries"] == 5
+    assert provider["request_max_retries"] == 2
+    assert (
+        provider["stream_idle_timeout_ms"] == original["model_providers"]["copilot_gateway"]["stream_idle_timeout_ms"]
+    )
+    assert provider["auth"] == {"command": "/bin/cat", "args": [str(tmp_path / "proxy-key")]}
+    assert result["model"] == original["model"]
+    assert result["approval_policy"] == original["approval_policy"]
+    assert result["sandbox_mode"] == original["sandbox_mode"]
 
 
 def test_claude_only_native_configuration_leaves_invalid_codex_settings_untouched(tmp_path: Path) -> None:

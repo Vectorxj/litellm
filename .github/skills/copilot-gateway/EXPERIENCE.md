@@ -74,6 +74,40 @@ https://github.com/openai/codex/blob/rust-v0.146.0/codex-rs/models-manager/promp
 
 The Copilot catalog advertised WebSocket support. A native WebSocket experiment reached an accepted connection on the local gateway but did not produce a usable generation after more than three minutes, and it was stopped. HTTP/SSE completed the same tool workflows. The committed configuration consequently sets `supports_websockets = false`; it does not assert that the upstream model lacks WebSocket capability
 
+### Recovering a prematurely closed Codex stream
+
+On 2026-09-10 at 08:51:19 UTC, a native Codex session reported:
+
+```text
+stream disconnected before completion: stream closed before response.completed
+```
+
+At the same timestamp, the gateway logged `httpx.ReadError: Connection closed` while reading its upstream Responses stream. No completed response was available. The client still used HTTP/SSE with a 600,000 ms idle timeout, so there was no evidence to justify switching transports or increasing that timeout
+
+The kit had explicitly set `stream_max_retries = 0`. This disabled Codex's own recovery for a generation interrupted after the HTTP response began. `request_max_retries = 2` does not cover that case. The fix restores `stream_max_retries = 5`, the documented source default in both the pinned Codex 0.146.0 and the installed native Codex 0.154.0. The native and isolated profiles were updated without changing models, credentials, client versions, or the running server
+
+Recovery was checked through a temporary loopback relay to the real gateway. On the first generation, the relay forwarded genuine Copilot SSE events through the first text delta and then closed the stream without forwarding `response.completed`. Subsequent requests were forwarded normally. The relay did not invent model output, completion events, or a successful tool result
+
+| Client | Stream retries | Requests observed | Real completion events delivered | Outcome |
+|---|---:|---:|---:|---|
+| Native Codex 0.154.0 | 0 | 1 | 0 | Original error reproduced, exit code 1 |
+| Native Codex 0.154.0 | 5 | 2 | 1 | Automatically recovered, exit code 0 |
+| Pinned Codex 0.146.0 | 5 | 2 | 1 | Automatically recovered, exit code 0 |
+
+The successful runs returned the requested `STREAM_RECOVERY_OK` text and a Codex `turn.completed` event. This verifies recovery from the observed class of failure, not a guarantee that Copilot or network connections never fail. A persistent outage still exhausts the bounded attempts. Codex owns the retry and its conversation/tool state; no server-side replay or fabricated `response.completed` was added
+
+Current source for the bounded default and conversation-aware retry loop:
+
+https://github.com/openai/codex/blob/rust-v0.154.0/codex-rs/model-provider-info/src/lib.rs
+
+https://github.com/openai/codex/blob/rust-v0.154.0/codex-rs/core/src/session/turn.rs
+
+The source checkpoint for the packaged client has the same retry default:
+
+https://github.com/openai/codex/blob/rust-v0.146.0/codex-rs/model-provider-info/src/lib.rs
+
+### Runtime dependencies
+
 Installing only the repository's `proxy` extra let successful inference work, but an unauthenticated request returned HTTP 500 because the exception handler imported an absent `prisma` module. Including the locked `proxy-dev` group restored the correct HTTP 401. No database was configured, and the server does not inherit a `DATABASE_URL`
 
 The pinned Claude Code npm package requires its postinstall step to replace a placeholder with the platform binary. Setup disables general npm lifecycle scripts, then runs that pinned package's inspected `install.cjs`. This installer links or copies the native optional dependency already verified by `package-lock.json`; it does not fetch an unpinned binary. Both client version outputs are checked after installation

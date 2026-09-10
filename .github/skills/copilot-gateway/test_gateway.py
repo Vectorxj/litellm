@@ -126,6 +126,8 @@ def test_configuration_routes_both_clients_and_keeps_credentials_private(tmp_pat
     assert codex["model_providers"]["copilot_gateway"]["base_url"] == "http://127.0.0.1:14000/v1"
     assert codex["model_providers"]["copilot_gateway"]["wire_api"] == "responses"
     assert codex["model_providers"]["copilot_gateway"]["supports_websockets"] is False
+    assert codex["model_providers"]["copilot_gateway"]["stream_max_retries"] == 5
+    assert codex["model_providers"]["copilot_gateway"]["request_max_retries"] == 2
     assert codex["check_for_update_on_startup"] is False
     assert codex["model_auto_compact_token_limit"] < codex["model_context_window"]
     assert claude["model"] == SELECTION.claude_model

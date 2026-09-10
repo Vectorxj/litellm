@@ -163,7 +163,7 @@ def codex_configuration(checkpoint: Checkpoint, selection: Selection, pin: Model
             "requires_openai_auth = false",
             "supports_websockets = false",
             "request_max_retries = 2",
-            "stream_max_retries = 0",
+            "stream_max_retries = 5",
             "stream_idle_timeout_ms = 600000",
             "",
         )

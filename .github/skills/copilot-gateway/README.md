@@ -145,6 +145,12 @@ The gateway sends the supplied GitHub OAuth token directly to the Copilot API us
 
 Codex uses Responses over HTTP/SSE. The upstream catalog advertised WebSockets, but the tested native WebSocket path did not finish a generation, so the checkpoint does not enable it. This is a tested transport choice, not a claim that Copilot lacks WebSockets
 
+Codex allows up to five stream-recovery attempts with `stream_max_retries = 5`, matching its built-in default. This is separate from `request_max_retries = 2`, which covers failed HTTP requests before streaming. The earlier value of zero disabled recovery and made a single upstream read failure end the turn with `stream closed before response.completed`
+
+Stream recovery belongs to Codex, which tracks conversation and tool state. The gateway does not replay partial generations, invent a completion event, or hide persistent failures. Recovery can make another billable model request and is not an exactly-once guarantee for external tool effects. Persistent outages still fail after the bounded attempts
+
+Existing profiles need the updated setting too. Run setup and `configure-clients` with qualified clients, or change only `[model_providers.copilot_gateway].stream_max_retries` from `0` to `5` in an existing native `config.toml`. Close and reopen Codex, or resume the conversation in a new process, to load it. No server restart is required for this client setting
+
 Claude Code uses LiteLLM's existing Messages-to-Chat-to-Responses compatibility path. The final upstream request is still Responses. This avoids the observed tool-stream failure in the direct Messages-to-Responses path when Copilot changes item IDs between stream events. Ordinary streaming and tools remain enabled
 
 Claude auto mode makes a separate, non-streaming safety-classifier request with `stop_sequences: ["</block>"]`. Responses does not accept the translated `stop` parameter. The gateway's registered callback handles stop sequences locally for non-streaming GPT Messages requests without tools: it omits only the upstream stop parameter, retains the original sequences, and truncates returned text at the first matching sequence with the correct `stop_reason` and `stop_sequence`. The model's actual allow or block decision is preserved. Existing approval rules and auto mode remain unchanged
