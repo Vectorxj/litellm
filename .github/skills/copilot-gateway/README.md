@@ -127,6 +127,10 @@ State defaults to `${XDG_STATE_HOME:-$HOME/.local/state}/litellm-copilot-gateway
 
 The state directory has mode `0700`, and generated credential and configuration files have mode `0600`. A separate random proxy key protects local inference. The upstream Copilot token is supplied only to the server process. Codex and Claude Code receive the local proxy key instead
 
+Changing upstream credentials can invalidate provider-bound history in existing conversations. An old input item or encrypted reasoning block can return `401 input item does not belong to this connection` even when a fresh request with the new credential succeeds. LiteLLM can then cool down the deployment, making the next attempt appear as a `429 No deployments available` error
+
+Keep the original session and old credential backup. Continuing exclusively with the new credential may require a fresh conversation with a plain-text handoff, or an explicitly approved migration copy that omits nonportable provider state. Do not silently discard encrypted reasoning, rewrite the original history, switch back to the old token, or treat this ownership error as an exhausted rate limit
+
 Generated state includes `proxy.yaml`, `upstream-token`, `proxy-key`, `curl-headers`, `selection.json`, a private Python environment, pinned npm clients, and isolated client profiles. Setup can be rerun with the existing private token file. It preserves the proxy key and regenerates configuration rather than merging unrelated profiles
 
 Client automatic updates and startup update prompts are disabled for this profile. The launcher checks client versions and rejects drift instead of silently running another checkpoint

@@ -30,6 +30,16 @@ Streaming, function calls, parallel function calls, and image input were also ad
 
 ## A working text response was not enough
 
+### Credential changes and existing conversations
+
+After an upstream credential switch on 2026-09-12, an existing Codex conversation first received Copilot HTTP 401 with `input item does not belong to this connection`. LiteLLM subsequently put the single deployment into cooldown, and an immediate retry returned HTTP 429 with `No deployments available for selected model`. The final Codex retry-limit message hid the earlier ownership error
+
+Fresh inference with the new credential still completed successfully. A harmless message item retained from an earlier synthetic probe returned 401 with its provider ID, while the same visible text without that ID completed. An old encrypted reasoning item still returned 401 after its ID was removed. Removing redundant IDs alone therefore does not establish that an entire existing conversation is portable
+
+The original conversation and its old token backup were preserved. No fallback to the old credential, automatic reasoning deletion, or original-history rewrite was performed. Continuing on the new credential requires a fresh text-based handoff or an explicitly approved, validated migration with its loss of opaque state disclosed
+
+### Streaming tool compatibility
+
 Both `/v1/responses` and `/v1/messages` returned HTTP 200 for simple text. Claude Code still failed on its first tool workflow with:
 
 ```text

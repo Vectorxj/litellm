@@ -13,6 +13,8 @@ Require an explicit credential source and an explicit model for Claude Code. Acc
 
 For a fresh environment, ask the user to supply a Copilot GitHub OAuth token or a supported fine-grained PAT. A short-lived Copilot API token is not a durable substitute. Do not silently read another application's credential store. If the user explicitly authorizes reusing an existing Copilot login, use the documented storage or credential interface for that installed CLI version and transfer the credential only through process memory, private files, or standard input
 
+When switching credentials, preserve the old token privately and do not use it as a fallback unless authorized. Existing provider-bound input IDs or encrypted reasoning may fail under the new credential. Diagnose the first upstream error before a later router cooldown: a 401 ownership error can become a misleading 429. Preserve the original conversation and get explicit approval before lossy migration or removing opaque reasoning state
+
 Confirm which OpenAI model Claude Code should use, including its auxiliary and subagent requests. Do not assume that selecting the main model also configures those other requests. The deterministic checkpoint currently defaults Codex to `gpt-6-astra` but still requires `--claude-model`
 
 Recheck subagent model precedence when upgrading the client. Claude Code 2.1.257 and later document `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1` for forcing an explicitly chosen model over agent-definition overrides. Do not assume an environment default alone forces every subagent, and test the intended behavior before changing the pinned client
