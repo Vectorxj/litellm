@@ -14,32 +14,37 @@ from pathlib import Path
 from typing import Final, Literal
 
 import httpx
+from gateway_catalog import Catalog, CatalogModel, discover_models, validate_catalog
+from gateway_client_config import claude_configuration, claude_environment, codex_catalog, codex_configuration
 from gateway_config import (
     API_BASE,
     PROXY_KEY_ENV,
     UPSTREAM_TOKEN_ENV,
     Checkpoint,
+    GatewayModel,
     ModelPin,
     Paths,
     Problem,
     Selection,
-    claude_configuration,
-    claude_environment,
+    available_models,
     clean_environment,
-    codex_catalog,
-    codex_configuration,
     proxy_configuration,
     selected_pins,
 )
 from gateway_files import private_directory, read_secret, write_private
-from native_config import configure_native_clients, plan_native_clients
+from native_config import (
+    configure_native_clients,
+    native_catalog_update,
+    plan_native_clients,
+    refreshed_claude_picker,
+)
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError
 
 
 class Options(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", hide_input_in_errors=True)
 
-    command: Literal["catalog", "setup", "serve", "codex", "claude", "configure-clients"]
+    command: Literal["catalog", "setup", "refresh-models", "serve", "codex", "claude", "configure-clients"]
     token_env: str | None = None
     token_file: Path | None = None
     token_stdin: bool = False
@@ -49,45 +54,6 @@ class Options(BaseModel):
     codex_model: str | None = None
     port: int = Field(default=4000, ge=1024, le=65535)
     client_args: tuple[str, ...] = ()
-
-
-class ModelLimits(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="ignore")
-
-    max_prompt_tokens: int | None = None
-    max_output_tokens: int | None = None
-    max_context_window_tokens: int | None = None
-
-
-class ModelSupport(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="ignore")
-
-    tool_calls: bool = False
-    parallel_tool_calls: bool = False
-    streaming: bool = False
-    vision: bool = False
-    reasoning_effort: tuple[str, ...] = ()
-
-
-class Capabilities(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="ignore")
-
-    limits: ModelLimits = ModelLimits()
-    supports: ModelSupport = ModelSupport()
-
-
-class CatalogModel(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="ignore")
-
-    id: str
-    supported_endpoints: tuple[str, ...] = ()
-    capabilities: Capabilities = Capabilities()
-
-
-class Catalog(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="ignore")
-
-    data: tuple[CatalogModel, ...]
 
 
 def add_token_options(parser: argparse.ArgumentParser) -> None:
@@ -113,6 +79,7 @@ def parse_options(argv: Sequence[str]) -> Options:
     )
     setup.add_argument("--codex-model")
     setup.add_argument("--port", type=int, default=4000)
+    commands.add_parser("refresh-models", help="Refresh the authorized model catalog without changing client defaults.")
     commands.add_parser("serve")
     commands.add_parser("configure-clients", help="Back up and merge the selected native client settings.")
     codex: Final = commands.add_parser("codex")
@@ -154,9 +121,9 @@ def provided_token(options: Options, environ: Mapping[str, str]) -> SecretStr | 
 
 def validate_token(token: SecretStr) -> SecretStr | Problem:
     value: Final = token.get_secret_value()
-    if not value.startswith(("gho_", "github_pat_")) or any(character.isspace() for character in value):
+    if not value.startswith(("gho_", "ghu_", "github_pat_")) or any(character.isspace() for character in value):
         return Problem(
-            "Provide a Copilot GitHub OAuth token or supported fine-grained PAT. "
+            "Provide a Copilot GitHub OAuth token, GitHub App user token, or supported fine-grained PAT. "
             "A short-lived Copilot API token is not a reproducible credential source."
         )
     return token
@@ -196,35 +163,6 @@ def fetch_codex_prompt(client: httpx.Client, paths: Paths, checkpoint: Checkpoin
     if hashlib.sha256(response.content).hexdigest() != checkpoint.codex_prompt_sha256:
         return Problem("The Codex prompt checksum does not match the checkpoint. No replacement prompt was used.")
     return response.content.decode("utf-8")
-
-
-def validate_model(pin: ModelPin, catalog: tuple[CatalogModel, ...]) -> Problem | None:
-    model: Final = next((entry for entry in catalog if entry.id == pin.id), None)
-    if model is None:
-        return Problem(f"Copilot did not advertise the pinned model {pin.id}. No fallback was selected.")
-    if not frozenset(model.supported_endpoints).intersection(("/responses", "/v1/responses")):
-        return Problem(f"Copilot did not advertise Responses support for {pin.id}.")
-    limits: Final = model.capabilities.limits
-    if limits.max_prompt_tokens is None or limits.max_output_tokens is None or limits.max_context_window_tokens is None:
-        return Problem(f"Copilot did not advertise token limits for {pin.id}.")
-    if (
-        pin.max_input_tokens > limits.max_prompt_tokens
-        or pin.max_output_tokens > limits.max_output_tokens
-        or pin.context_window_tokens > limits.max_context_window_tokens
-    ):
-        return Problem(f"The pinned token limits exceed the current Copilot limits for {pin.id}.")
-    support: Final = model.capabilities.supports
-    if not all((support.tool_calls, support.parallel_tool_calls, support.streaming, support.vision)):
-        return Problem(
-            f"The advertised tools, streaming, or vision capabilities do not match this checkpoint: {pin.id}."
-        )
-    if not frozenset(pin.reasoning_efforts).issubset(support.reasoning_effort):
-        return Problem(f"The advertised reasoning levels do not match this checkpoint: {pin.id}.")
-    return None
-
-
-def validate_catalog(pins: tuple[ModelPin, ...], catalog: tuple[CatalogModel, ...]) -> Problem | None:
-    return next(filter(None, (validate_model(pin, catalog) for pin in pins)), None)
 
 
 def verify_source(paths: Paths, checkpoint: Checkpoint) -> Problem | None:
@@ -268,6 +206,8 @@ def configure(
     catalog_problem: Final = validate_catalog(pins, catalog)
     if catalog_problem is not None:
         return catalog_problem
+    models: Final = available_models(checkpoint, selection)
+    recorded_selection: Final = selection.model_copy(update={"catalog_models": models})
     directories: Final = (paths.state, paths.state / "claude") + (
         () if selection.claude_only else (paths.state / "codex", paths.state / "clients")
     )
@@ -292,7 +232,7 @@ def configure(
             ),
             (
                 paths.state / "codex/model-catalog.json",
-                json.dumps(codex_catalog(checkpoint, pin, codex_prompt), indent=2) + "\n",
+                json.dumps(codex_catalog(checkpoint, models, codex_prompt), indent=2) + "\n",
             ),
             (paths.state / "codex/prompt.md", codex_prompt),
             (paths.state / "clients/package.json", (paths.kit / "package.json").read_text(encoding="utf-8")),
@@ -302,20 +242,82 @@ def configure(
     files: Final = (
         (paths.token, token.get_secret_value() + "\n"),
         (paths.key, key.get_secret_value() + "\n"),
-        (paths.proxy_config, json.dumps(proxy_configuration(checkpoint, pins), indent=2) + "\n"),
+        (paths.proxy_config, json.dumps(proxy_configuration(checkpoint, models), indent=2) + "\n"),
         (
             paths.state / "gateway_stop_sequences.py",
             (paths.kit / "gateway_stop_sequences.py").read_text(encoding="utf-8"),
         ),
         *packaged_files,
-        (paths.state / "claude/settings.json", json.dumps(claude_configuration(selection), indent=2) + "\n"),
+        (paths.state / "claude/settings.json", json.dumps(claude_configuration(recorded_selection), indent=2) + "\n"),
         (
             paths.state / "curl-headers",
             f"Authorization: Bearer {key.get_secret_value()}\nContent-Type: application/json\n",
         ),
-        (paths.state / "selection.json", selection.model_dump_json(indent=2) + "\n"),
+        (paths.state / "selection.json", recorded_selection.model_dump_json(indent=2) + "\n"),
     )
     return next(filter(None, starmap(write_private, files)), None)
+
+
+def refresh_models(
+    paths: Paths,
+    checkpoint: Checkpoint,
+    checkpoint_sha256: str,
+    models: tuple[GatewayModel, ...],
+    environ: Mapping[str, str],
+    home: Path,
+) -> Problem | None:
+    saved: Final = Selection.model_validate_json((paths.state / "selection.json").read_bytes())
+    if saved.checkpoint_sha256 != checkpoint_sha256:
+        return Problem("The software checkpoint changed. Run setup before refreshing the model catalog.")
+    selection: Final = saved.model_copy(update={"catalog_models": models})
+    with httpx.Client() as client:
+        prompt: Final = "" if selection.claude_only else fetch_codex_prompt(client, paths, checkpoint)
+    if isinstance(prompt, Problem):
+        return prompt
+    private_settings: Final = paths.state / "claude/settings.json"
+    refreshed_settings: Final = refreshed_claude_picker(private_settings.read_bytes(), selection)
+    if isinstance(refreshed_settings, Problem):
+        return refreshed_settings
+    native_updates: Final = native_catalog_update(paths, selection, environ, home)
+    if isinstance(native_updates, Problem):
+        return native_updates
+    native_result: Final = configure_native_clients(paths, native_updates)
+    if isinstance(native_result, Problem):
+        return native_result
+    files: Final = (
+        (paths.proxy_config, json.dumps(proxy_configuration(checkpoint, models), indent=2) + "\n"),
+        (private_settings, refreshed_settings),
+        (
+            paths.state / "gateway_stop_sequences.py",
+            (paths.kit / "gateway_stop_sequences.py").read_text(encoding="utf-8"),
+        ),
+        *(
+            ()
+            if selection.claude_only
+            else (
+                (
+                    paths.state / "codex/model-catalog.json",
+                    json.dumps(codex_catalog(checkpoint, models, prompt), indent=2) + "\n",
+                ),
+            )
+        ),
+        (paths.state / "selection.json", selection.model_dump_json(indent=2) + "\n"),
+    )
+    problem: Final = next(filter(None, starmap(write_private, files)), None)
+    if problem is not None:
+        return problem
+    available: Final = frozenset(model.id for model in models if isinstance(model, ModelPin))
+    selected: Final = (
+        (selection.claude_model,) if selection.claude_only else (selection.codex_model, selection.claude_model)
+    )
+    removed: Final = frozenset(selected) - available
+    if removed:
+        sys.stdout.write(f"Previously selected models are no longer available: {', '.join(sorted(removed))}\n")
+    sys.stdout.write(
+        f"Refreshed {len(models)} authorized models and client pickers. Client defaults were not changed.\n"
+        "Restart the gateway and clients to load the refreshed catalog.\n"
+    )
+    return None
 
 
 def verify_client(executable: Path, expected: str, environ: Mapping[str, str]) -> Problem | None:
@@ -360,11 +362,12 @@ def configure_standard_clients(
     updates: Final = plan_native_clients(paths, checkpoint, selection, environ, Path.home())
     if isinstance(updates, Problem):
         return updates
-    claude_version: Final = checkpoint.native_claude_version if selection.claude_only else checkpoint.claude_version
+    claude_version: Final = checkpoint.native_claude_version
+    codex_version: Final = checkpoint.native_codex_version or checkpoint.codex_version
     versions: Final = tuple(
         (
             update.client,
-            f"codex-cli {checkpoint.codex_version}" if update.client == "codex" else f"{claude_version} (Claude Code)",
+            f"codex-cli {codex_version}" if update.client == "codex" else f"{claude_version} (Claude Code)",
         )
         for update in updates
     )
@@ -434,6 +437,13 @@ def launch(
                 **base_env,
                 "LITELLM_MODE": "PRODUCTION",
                 "LITELLM_LOCAL_MODEL_COST_MAP": "True",
+                "COPILOT_GATEWAY_RESPONSES_MODELS": json.dumps(
+                    tuple(
+                        model.id
+                        for model in available_models(checkpoint, selection)
+                        if isinstance(model, ModelPin) and model.native_responses
+                    )
+                ),
                 UPSTREAM_TOKEN_ENV: token.get_secret_value(),
                 PROXY_KEY_ENV: key.get_secret_value(),
             },
@@ -501,22 +511,26 @@ def run(options: Options, paths: Paths, environ: Mapping[str, str]) -> Problem |
     if source_problem is not None:
         return source_problem
     checkpoint_sha256: Final = hashlib.sha256(checkpoint_bytes).hexdigest()
-    if options.command in ("catalog", "setup"):
-        token: Final = provided_token(options, environ)
+    if options.command in ("catalog", "setup", "refresh-models"):
+        token: Final = (
+            read_secret(paths.token) if options.command == "refresh-models" else provided_token(options, environ)
+        )
         if isinstance(token, Problem):
             return token
         with httpx.Client() as client:
             catalog: Final = fetch_catalog(client, token, checkpoint.upstream_headers)
         if isinstance(catalog, Problem):
             return catalog
+        discovery: Final = discover_models(catalog)
+        if isinstance(discovery, Problem):
+            return discovery
+        if discovery.disabled:
+            sys.stdout.write(f"Excluded {len(discovery.disabled)} models not enabled by Copilot policy.\n")
         if options.command == "catalog":
-            sys.stdout.write(
-                json.dumps(
-                    [entry.model_dump(mode="json") for entry in catalog if entry.id.startswith("gpt-")], indent=2
-                )
-                + "\n"
-            )
+            sys.stdout.write(json.dumps([entry.model_dump(mode="json") for entry in discovery.models], indent=2) + "\n")
             return None
+        if options.command == "refresh-models":
+            return refresh_models(paths, checkpoint, checkpoint_sha256, discovery.models, environ, Path.home())
         with httpx.Client() as public_client:
             codex_prompt: Final = "" if options.claude_only else fetch_codex_prompt(public_client, paths, checkpoint)
         if isinstance(codex_prompt, Problem):
@@ -530,6 +544,7 @@ def run(options: Options, paths: Paths, environ: Mapping[str, str]) -> Problem |
             port=options.port,
             checkpoint=checkpoint.checkpoint,
             checkpoint_sha256=checkpoint_sha256,
+            catalog_models=discovery.models,
         )
         configure_problem: Final = configure(paths, checkpoint, selection, token, catalog, codex_prompt)
         if configure_problem is not None:
@@ -541,6 +556,7 @@ def run(options: Options, paths: Paths, environ: Mapping[str, str]) -> Problem |
         sys.stdout.write(
             f"Configured {checkpoint.checkpoint} in {paths.state}\n"
             f"{codex_status}Claude Code model: {selection.claude_model}\n"
+            f"Exposed {len(selection.catalog_models)} models from the authorized Copilot catalog.\n"
             "Credentials were saved with private permissions, not printed. Start the server with bootstrap.sh serve.\n"
         )
         return None
