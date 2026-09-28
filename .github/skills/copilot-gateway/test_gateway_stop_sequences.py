@@ -63,19 +63,6 @@ async def test_unqualified_requests_are_not_modified(changes: Mapping[str, objec
     assert await handler.async_post_call_success_hook(data, AUTH, response) is response
 
 
-@pytest.mark.asyncio
-async def test_catalog_limits_stop_emulation_to_native_responses_models() -> None:
-    handler: Final = GatewayStopSequences(response_models=frozenset(("response-fixture",)))
-    native: Final = {**REQUEST, "model": "response-fixture"}
-    prepared: Final = await handler.async_pre_call_hook(AUTH, DualCache(), native, "anthropic_messages")
-    assert prepared is not None
-    assert prepared["additional_drop_params"] == ["stop"]
-    legacy_chat: Final = {**REQUEST, "model": "gpt-chat-fixture"}
-    assert await handler.async_pre_call_hook(AUTH, DualCache(), legacy_chat, "anthropic_messages") is None
-    response: Final = RESPONSE_ADAPTER.validate_python(RESPONSE)
-    assert await handler.async_post_call_success_hook(legacy_chat, AUTH, response) is response
-
-
 @pytest.mark.parametrize(
     ("parts", "sequences", "expected", "stop"),
     (

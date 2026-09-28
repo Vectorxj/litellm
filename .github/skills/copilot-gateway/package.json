@@ -4,7 +4,7 @@
   "private": true,
   "description": "Pinned local clients for the Copilot gateway checkpoint",
   "dependencies": {
-    "@anthropic-ai/claude-code": "2.1.266",
-    "@openai/codex": "0.154.0"
+    "@anthropic-ai/claude-code": "2.1.220",
+    "@openai/codex": "0.146.0"
   }
 }

@@ -8,16 +8,15 @@ from typing import Final
 
 import pytest
 import tomllib
-from gateway_client_config import codex_configuration
-from gateway_config import Checkpoint, EmbeddingModel, Paths, Problem, Selection
-from native_config import configure_native_clients, native_catalog_update, native_codex_config, plan_native_clients
+from gateway_config import Checkpoint, Paths, Problem, Selection, codex_configuration
+from native_config import configure_native_clients, native_codex_config, plan_native_clients
 
 KIT: Final = Path(__file__).resolve().parent
 CHECKPOINT_BYTES: Final = (KIT / "checkpoint.json").read_bytes()
 CHECKPOINT: Final = Checkpoint.model_validate_json(CHECKPOINT_BYTES)
 SELECTION: Final = Selection(
-    codex_model="gpt-6-sol",
-    claude_model="claude-opus-5.5",
+    codex_model="gpt-6-astra",
+    claude_model="gpt-6-astra",
     port=14000,
     checkpoint=CHECKPOINT.checkpoint,
     checkpoint_sha256=hashlib.sha256(CHECKPOINT_BYTES).hexdigest(),
@@ -27,10 +26,6 @@ ORIGINAL_CODEX: Final = (
         "# Keep this personal comment\n"
         'model_provider = "previous"\n'
         'model = "previous-model" # Keep this inline comment\n'
-        'model_reasoning_effort = "max"\n'
-        "model_context_window = 1050000\n"
-        "model_auto_compact_token_limit = 945000\n"
-        "model_max_output_tokens = 4096\n"
         'approval_policy = "on-request"\n'
         'sandbox_mode = "read-only"\n'
         "[model_providers.previous]\n"
@@ -47,14 +42,7 @@ ORIGINAL_CODEX: Final = (
 )
 ORIGINAL_CLAUDE: Final = json.dumps(
     {
-        "env": {
-            "ANTHROPIC_AUTH_TOKEN": "previous-token-fixture",
-            "ANTHROPIC_MODEL": "previous-model",
-            "ANTHROPIC_DEFAULT_MODEL": "previous-default",
-            "CLAUDE_CODE_SUBAGENT_MODEL": "previous-subagent",
-            "CLAUDE_CODE_SUBAGENT_MODEL_FORCE": "1",
-            "KEEP_ME": "unchanged",
-        },
+        "env": {"ANTHROPIC_AUTH_TOKEN": "previous-token-fixture", "KEEP_ME": "unchanged"},
         "permissions": {"allow": ["Read"], "deny": ["Bash(rm *)"], "defaultMode": "default"},
         "theme": "dark",
         "apiKeyHelper": "previous-helper",
@@ -72,9 +60,7 @@ def write_originals(home: Path) -> None:
 
 def test_native_settings_preserve_preferences_and_use_working_secret_helpers(tmp_path: Path) -> None:
     home: Final = tmp_path / "home"
-    paths: Final = Paths(
-        kit=tmp_path / "repository/.github/skills/copilot-gateway", state=tmp_path / "state with ' quote"
-    )
+    paths: Final = Paths(kit=KIT, state=tmp_path / "state with ' quote")
     write_originals(home)
     paths.state.mkdir(mode=0o700)
     paths.key.write_text("proxy-key-fixture\n")
@@ -94,11 +80,7 @@ def test_native_settings_preserve_preferences_and_use_working_secret_helpers(tmp
     original_codex: Final = tomllib.loads(ORIGINAL_CODEX.decode())
     assert "# Keep this personal comment" in codex_text
     assert "# Keep this inline comment" in codex_text
-    assert codex["model"] == "gpt-6-sol"
-    assert "model_reasoning_effort" not in codex
-    assert "model_context_window" not in codex
-    assert "model_auto_compact_token_limit" not in codex
-    assert codex["model_max_output_tokens"] == 4096
+    assert codex["model"] == "gpt-6-astra"
     assert codex["model_provider"] == "copilot_gateway"
     assert codex["model_catalog_json"] == str(paths.state / "codex/model-catalog.json")
     assert codex["approval_policy"] == original_codex["approval_policy"]
@@ -117,22 +99,11 @@ def test_native_settings_preserve_preferences_and_use_working_secret_helpers(tmp
 
     claude_text: Final = (home / ".claude/settings.json").read_text()
     claude: Final = json.loads(claude_text)
-    assert claude["model"] == "claude-opus-5.5"
-    assert claude["modelPicker"] == {
-        "options": [{"model": model.id, "label": model.display_name or model.id} for model in CHECKPOINT.models],
-        "replaceBuiltInOptions": True,
-    }
+    assert claude["model"] == "gpt-6-astra"
     assert claude["theme"] == "dark"
     assert claude["env"]["KEEP_ME"] == "unchanged"
     assert claude["env"]["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:14000"
     assert claude["env"]["ANTHROPIC_AUTH_TOKEN"] == ""
-    assert claude["env"]["CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY"] == "1"
-    assert not {
-        "ANTHROPIC_MODEL",
-        "ANTHROPIC_DEFAULT_MODEL",
-        "CLAUDE_CODE_SUBAGENT_MODEL",
-        "CLAUDE_CODE_SUBAGENT_MODEL_FORCE",
-    }.intersection(claude["env"])
     assert claude["permissions"] == {
         "allow": ["Read"],
         "deny": ["Bash(rm *)", "WebSearch"],
@@ -164,7 +135,7 @@ def test_native_settings_preserve_preferences_and_use_working_secret_helpers(tmp
 )
 def test_invalid_config_prevents_changes_to_either_client(tmp_path: Path, target: str, invalid: bytes) -> None:
     home: Final = tmp_path / "home"
-    paths: Final = Paths(kit=tmp_path / "repository/.github/skills/copilot-gateway", state=tmp_path / "state")
+    paths: Final = Paths(kit=KIT, state=tmp_path / "state")
     write_originals(home)
     (home / target).write_bytes(invalid)
     before: Final = tuple((home / name).read_bytes() for name in (".codex/config.toml", ".claude/settings.json"))
@@ -176,7 +147,7 @@ def test_invalid_config_prevents_changes_to_either_client(tmp_path: Path, target
 
 def test_concurrent_config_edit_is_not_overwritten(tmp_path: Path) -> None:
     home: Final = tmp_path / "home"
-    paths: Final = Paths(kit=tmp_path / "repository/.github/skills/copilot-gateway", state=tmp_path / "state")
+    paths: Final = Paths(kit=KIT, state=tmp_path / "state")
     write_originals(home)
     plan: Final = plan_native_clients(paths, CHECKPOINT, SELECTION, {}, home)
     assert not isinstance(plan, Problem)
@@ -191,7 +162,7 @@ def test_concurrent_config_edit_is_not_overwritten(tmp_path: Path) -> None:
 
 def test_symlinked_native_config_is_not_replaced(tmp_path: Path) -> None:
     home: Final = tmp_path / "home"
-    paths: Final = Paths(kit=tmp_path / "repository/.github/skills/copilot-gateway", state=tmp_path / "state")
+    paths: Final = Paths(kit=KIT, state=tmp_path / "state")
     (home / ".codex").mkdir(parents=True)
     original: Final = tmp_path / "managed.toml"
     original.write_bytes(ORIGINAL_CODEX)
@@ -207,20 +178,6 @@ def test_active_codex_profile_requires_explicit_configuration() -> None:
     result: Final = native_codex_config('profile = "work"\n', "", Path("/private/proxy-key"))
     assert isinstance(result, Problem)
     assert "active Codex profile" in result.message
-
-
-def test_catalog_refresh_does_not_reconfigure_an_unrelated_claude_gateway(tmp_path: Path) -> None:
-    home: Final = tmp_path / "home"
-    paths: Final = Paths(kit=KIT, state=tmp_path / "state")
-    (home / ".claude").mkdir(parents=True)
-    target: Final = home / ".claude/settings.json"
-    original: Final = b'{"env":{"ANTHROPIC_BASE_URL":"https://other.example.test"},"model":"user-model"}\n'
-    target.write_bytes(original)
-    target.chmod(0o644)
-    result: Final = native_catalog_update(paths, SELECTION, {}, home)
-    assert result == ()
-    assert target.read_bytes() == original
-    assert stat.S_IMODE(target.stat().st_mode) == 0o644
 
 
 def test_native_reconfiguration_restores_bounded_stream_retries(tmp_path: Path) -> None:
@@ -245,7 +202,7 @@ def test_native_reconfiguration_restores_bounded_stream_retries(tmp_path: Path) 
 
 def test_claude_only_native_configuration_leaves_invalid_codex_settings_untouched(tmp_path: Path) -> None:
     home: Final = tmp_path / "home"
-    paths: Final = Paths(kit=tmp_path / "repository/.github/skills/copilot-gateway", state=tmp_path / "state")
+    paths: Final = Paths(kit=KIT, state=tmp_path / "state")
     write_originals(home)
     codex: Final = home / ".codex/config.toml"
     codex.write_bytes(b"[invalid Codex configuration")
@@ -259,10 +216,9 @@ def test_claude_only_native_configuration_leaves_invalid_codex_settings_untouche
     assert tuple(path.name for path in backup.iterdir()) == ("claude-settings.json",)
     assert (backup / "claude-settings.json").read_bytes() == ORIGINAL_CLAUDE
     claude: Final = json.loads((home / ".claude/settings.json").read_text())
-    assert claude["model"] == "claude-opus-5.5"
+    assert claude["model"] == "gpt-6-astra"
     assert claude["env"]["KEEP_ME"] == "unchanged"
-    assert "CLAUDE_CODE_SUBAGENT_MODEL" not in claude["env"]
-    assert "CLAUDE_CODE_SUBAGENT_MODEL_FORCE" not in claude["env"]
+    assert claude["env"]["CLAUDE_CODE_SUBAGENT_MODEL_FORCE"] == "1"
     assert claude["permissions"]["allow"] == ["Read"]
     again: Final = plan_native_clients(paths, CHECKPOINT, selection, {}, home)
     assert not isinstance(again, Problem)
@@ -270,7 +226,7 @@ def test_claude_only_native_configuration_leaves_invalid_codex_settings_untouche
 
 
 def test_native_config_homes_follow_client_environment(tmp_path: Path) -> None:
-    paths: Final = Paths(kit=tmp_path / "repository/.github/skills/copilot-gateway", state=tmp_path / "state")
+    paths: Final = Paths(kit=KIT, state=tmp_path / "state")
     codex_home: Final = tmp_path / "custom-codex"
     claude_home: Final = tmp_path / "custom-claude"
     result: Final = plan_native_clients(
@@ -282,26 +238,3 @@ def test_native_config_homes_follow_client_environment(tmp_path: Path) -> None:
     )
     assert not isinstance(result, Problem)
     assert tuple(update.target for update in result) == (codex_home / "config.toml", claude_home / "settings.json")
-
-
-def test_native_configuration_accepts_discovered_defaults_and_lists_the_full_chat_catalog(tmp_path: Path) -> None:
-    paths: Final = Paths(kit=tmp_path / "repository/.github/skills/copilot-gateway", state=tmp_path / "state")
-    discovered: Final = CHECKPOINT.models[0].model_copy(
-        update={"id": "fixture-discovered-chat", "display_name": "Discovered chat", "reasoning_efforts": ()}
-    )
-    catalog: Final = (*CHECKPOINT.models, discovered, EmbeddingModel(id="fixture-embedding"))
-    selection: Final = SELECTION.model_copy(
-        update={"codex_model": discovered.id, "claude_model": discovered.id, "catalog_models": catalog}
-    )
-    result: Final = plan_native_clients(paths, CHECKPOINT, selection, {}, tmp_path / "home")
-    assert not isinstance(result, Problem)
-    codex, claude = result
-    assert tomllib.loads(codex.rendered)["model"] == discovered.id
-    settings: Final = json.loads(claude.rendered)
-    assert settings["model"] == discovered.id
-    assert settings["modelPicker"]["options"] == [
-        {"model": model.id, "label": model.display_name or model.id} for model in (*CHECKPOINT.models, discovered)
-    ]
-    assert settings["env"]["ANTHROPIC_DEFAULT_OPUS_MODEL"] == discovered.id
-    assert "ANTHROPIC_MODEL" not in settings["env"]
-    assert "CLAUDE_CODE_SUBAGENT_MODEL" not in settings["env"]

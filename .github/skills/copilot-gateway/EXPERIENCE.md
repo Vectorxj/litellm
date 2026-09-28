@@ -1,23 +1,5 @@
 # Qualification notes
 
-## Selectable catalog update, 2026-09-26
-
-The gateway now deploys every enabled model returned by the active Copilot credential, rather than only the chosen default. The current account returned 39 models: 36 conversation models and three embedding models. Account-specific IDs and the complete catalog stay in private runtime state
-
-Codex remains on `gpt-6-astra` by default. Its actual `model/list` API returned all 36 conversation models, with Astra as the recommended default. A configuration change made through Codex's own `config/value/write` API in an isolated profile persisted across a new client process. Native `codex --model gpt-6-sol` and `codex --model gemini-3.8-flash` both completed real read-tool turns, covering native Responses and the Chat Completions bridge
-
-Opus 5.5 was not returned by the active catalog, and a direct request returned HTTP 400 with `model_not_supported`. Claude Code therefore stays on Astra as explicitly requested, without a token switch, provider fallback, or client upgrade. Both native clients completed real file read/edit workflows on Astra through their standard settings and key helpers. Claude's auto-mode classifier also approved and ran a harmless calculation without pre-approving Bash
-
-The default software pins are Codex 0.154.0 and Claude Code 2.1.266. The earlier staging check on 2026-09-23 found Opus 5.5 usable through native Messages but rejected Claude Code 2.1.266 as too old for that model. Model availability changed before deployment, so the current result, not the earlier raw-API success, controls the selected Claude default
-
-Each deployment uses its advertised API. Responses-capable models retain native Responses; chat-only models set `use_chat_completions_api` for the existing bridge; native Messages metadata selects Anthropic passthrough; embedding entries use their separate endpoint. A real embedding request returned a 1536-dimensional vector. The gateway's `/v1/models` response matched the authorized catalog exactly, and an unauthenticated inference request returned HTTP 401
-
-The native Codex migration removes the old global Astra context and reasoning overrides, using per-model metadata instead. Claude settings no longer force the startup or subagent model through environment variables. The generated Claude picker uses real model IDs, without pretending that GPT or Gemini are Claude models. `refresh-models` updates catalogs and Claude picker entries without replacing saved model defaults, permissions, credentials, or unrelated settings; native picker updates are backed up
-
-All pre-existing provider definitions and permission settings are preserved outside the routing fields deliberately changed by this setup. The active upstream credential and local proxy key are unchanged
-
-## Original Astra checkpoint
-
 Qualified on 2026-09-09 with real Copilot-backed inference, Codex 0.146.0, and Claude Code 2.1.220. No OpenAI or Anthropic upstream API key was used. Credentials, complete account catalogs, and raw private logs are intentionally absent from this directory
 
 ## Authentication and model discovery

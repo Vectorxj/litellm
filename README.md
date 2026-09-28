@@ -10,7 +10,7 @@ Setup branch: litellm_copilot_gateway_kit
 
 Use an existing checkout or clone the repository if needed. Preserve local changes and update the setup branch safely. Read .github/skills/copilot-gateway/SKILL.md, its README.md, EXPERIENCE.md, and checkpoint.json before acting
 
-Use the committed software checkpoint and discover all models enabled for my Copilot account. Default Codex to checkpoint.json's default_codex_model and Claude Code to default_claude_model, passing the latter explicitly as --claude-model. Expose the full authorized catalog through the appropriate APIs and let me select models normally in the clients. Do not silently replace my saved defaults during later catalog refreshes, add a small-model split, or replace software pins with latest
+Use the committed checkpoint and its pinned dependencies and client versions. Route both Codex and Claude Code to checkpoint.json's default_codex_model, passing that model explicitly as --claude-model. Preserve the checked-in auxiliary/subagent routing. Do not silently switch models, add a small-model split, or replace pins with latest
 
 I authorize you to reuse my existing Copilot CLI login on this machine through its documented credential interface. If a usable credential is unavailable, ask me to provide a private token file, a named environment variable, or a hidden terminal prompt. Never ask me to paste a token into chat, print it, put it in a command argument, or commit it
 

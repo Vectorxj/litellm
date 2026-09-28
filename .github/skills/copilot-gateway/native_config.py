@@ -10,8 +10,7 @@ from pathlib import Path
 from typing import Final, Literal
 
 import tomlkit
-from gateway_client_config import claude_configuration, claude_environment, codex_configuration
-from gateway_config import Checkpoint, Paths, Problem, Selection, available_models, selected_pins
+from gateway_config import Checkpoint, Paths, Problem, Selection, claude_environment, codex_configuration, selected_pins
 from gateway_files import private_directory, write_private, write_private_bytes
 from pydantic import JsonValue, TypeAdapter, ValidationError
 from tomlkit.exceptions import ParseError
@@ -26,9 +25,6 @@ CODEX_ROUTE_FIELDS: Final = (
     "model_context_window",
     "model_auto_compact_token_limit",
     "web_search",
-)
-CLAUDE_FORCED_MODEL_ENV: Final = frozenset(
-    ("ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL_FORCE")
 )
 
 
@@ -62,10 +58,7 @@ def native_codex_config(original: str, generated: str, key_path: Path) -> str | 
         "auth": {"command": "/bin/cat", "args": [str(key_path)]},
     }
     for key in CODEX_ROUTE_FIELDS:
-        if key in generated_values:
-            document[key] = generated_values[key]
-        elif key in document:
-            del document[key]
+        document[key] = generated_values[key]
     providers["copilot_gateway"] = provider_values
     document["model_providers"] = providers
     return document.as_string()
@@ -86,10 +79,9 @@ def native_claude_config(original: str | None, selection: Selection, key_path: P
     merged: Final[dict[str, JsonValue]] = {
         **existing,
         "model": selection.claude_model,
-        "modelPicker": claude_configuration(selection)["modelPicker"],
         "apiKeyHelper": shlex.join(("/bin/cat", str(key_path))),
         "env": {
-            **{key: value for key, value in environment.items() if key not in CLAUDE_FORCED_MODEL_ENV},
+            **environment,
             **claude_environment(selection),
             "ANTHROPIC_AUTH_TOKEN": "",
             "ANTHROPIC_API_KEY": "",
@@ -102,39 +94,6 @@ def native_claude_config(original: str | None, selection: Selection, key_path: P
         "permissions": {**permissions, "deny": denied if "WebSearch" in denied else [*denied, "WebSearch"]},
     }
     return json.dumps(merged, indent=2) + "\n"
-
-
-def refreshed_claude_picker(original: bytes, selection: Selection) -> str | Problem:
-    try:
-        existing: Final = JSON_OBJECT.validate_json(original)
-    except ValidationError:
-        return Problem("Claude Code settings are not a valid JSON object. The catalog was not refreshed.")
-    environment: Final = existing.get("env")
-    if (
-        not isinstance(environment, dict)
-        or environment.get("ANTHROPIC_BASE_URL") != claude_environment(selection)["ANTHROPIC_BASE_URL"]
-    ):
-        return original.decode("utf-8")
-    return json.dumps({**existing, "modelPicker": claude_configuration(selection)["modelPicker"]}, indent=2) + "\n"
-
-
-def native_catalog_update(
-    paths: Paths, selection: Selection, environ: Mapping[str, str], home: Path
-) -> tuple[ClientUpdate, ...] | Problem:
-    target: Final = Path(environ.get("CLAUDE_CONFIG_DIR") or str(home / ".claude")).expanduser() / "settings.json"
-    if target == paths.state / "claude/settings.json":
-        return ()
-    original: Final = configuration_bytes(target, paths.repo)
-    if isinstance(original, Problem):
-        return original
-    if original is None:
-        return ()
-    rendered: Final = refreshed_claude_picker(original, selection)
-    if isinstance(rendered, Problem):
-        return rendered
-    if rendered == original.decode("utf-8"):
-        return ()
-    return (ClientUpdate("claude", target, original, rendered),)
 
 
 def configuration_bytes(path: Path, repo: Path) -> bytes | None | Problem:
@@ -169,9 +128,7 @@ def plan_native_clients(
     if isinstance(claude_original, Problem):
         return claude_original
     claude_rendered: Final = native_claude_config(
-        claude_original.decode("utf-8") if claude_original is not None else None,
-        selection.model_copy(update={"catalog_models": available_models(checkpoint, selection)}),
-        paths.key,
+        claude_original.decode("utf-8") if claude_original is not None else None, selection, paths.key
     )
     if isinstance(claude_rendered, Problem):
         return claude_rendered

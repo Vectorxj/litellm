@@ -1,4 +1,3 @@
-import os
 from collections.abc import Mapping
 from itertools import accumulate
 from typing import Annotated, Final
@@ -15,7 +14,6 @@ JSON_OBJECT: Final = TypeAdapter(dict[str, JsonValue])
 DROP_PARAMETERS: Final = TypeAdapter(tuple[str, ...])
 CONTENT_BLOCKS: Final = TypeAdapter(tuple[dict[str, JsonValue], ...])
 TEXT: Final = TypeAdapter(str)
-MODEL_IDS: Final = TypeAdapter(tuple[str, ...])
 
 
 class StopRequest(BaseModel):
@@ -28,7 +26,7 @@ class StopRequest(BaseModel):
 
     @property
     def needs_emulation(self) -> bool:
-        return bool(self.stop_sequences) and not self.stream and not self.tools
+        return self.model.startswith("gpt-") and bool(self.stop_sequences) and not self.stream and not self.tools
 
 
 def apply_stop_sequences(response: Mapping[str, JsonValue], sequences: tuple[str, ...]) -> dict[str, JsonValue] | None:
@@ -62,20 +60,6 @@ def apply_stop_sequences(response: Mapping[str, JsonValue], sequences: tuple[str
 
 
 class GatewayStopSequences(CustomLogger):
-    def __init__(self, response_models: frozenset[str] | None = None) -> None:
-        super().__init__()  # pyright: ignore[reportUnknownMemberType]  # CustomLogger leaves **kwargs untyped
-        configured: Final = os.getenv("COPILOT_GATEWAY_RESPONSES_MODELS")
-        self.response_models = (
-            response_models
-            if response_models is not None
-            else frozenset(MODEL_IDS.validate_json(configured))
-            if configured is not None
-            else None
-        )
-
-    def handles_model(self, model: str) -> bool:
-        return model.startswith("gpt-") if self.response_models is None else model in self.response_models
-
     async def async_pre_call_hook(
         self,
         user_api_key_dict: UserAPIKeyAuth,
@@ -86,7 +70,7 @@ class GatewayStopSequences(CustomLogger):
         if call_type != "anthropic_messages" or not data.get("stop_sequences"):
             return None
         request: Final = StopRequest.model_validate(data)
-        if not request.needs_emulation or not self.handles_model(request.model):
+        if not request.needs_emulation:
             return None
         configured_drops: Final = data.get("additional_drop_params")
         dropped: Final = DROP_PARAMETERS.validate_python(() if configured_drops is None else configured_drops)
@@ -101,7 +85,7 @@ class GatewayStopSequences(CustomLogger):
         if not data.get("stop_sequences") or not isinstance(response, dict):
             return response
         request: Final = StopRequest.model_validate(data)
-        if not request.needs_emulation or not self.handles_model(request.model):
+        if not request.needs_emulation:
             return response
         result: Final = apply_stop_sequences(
             JSON_OBJECT.validate_python(jsonable_encoder(response)), request.stop_sequences

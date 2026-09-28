@@ -9,7 +9,6 @@ from typing import Final
 import httpx
 import pytest
 import tomllib
-from gateway_catalog import Capabilities, CatalogModel, ModelLimits, ModelSupport, validate_catalog
 from gateway_config import (
     API_BASE,
     UPSTREAM_TOKEN_ENV,
@@ -23,6 +22,10 @@ from gateway_config import (
 from pydantic import JsonValue, SecretStr
 
 from gateway import (
+    Capabilities,
+    CatalogModel,
+    ModelLimits,
+    ModelSupport,
     Options,
     configure,
     fetch_catalog,
@@ -32,8 +35,7 @@ from gateway import (
     parse_options,
     private_directory,
     provided_token,
-    refresh_models,
-    validate_token,
+    validate_catalog,
     verify_client,
     write_private,
 )
@@ -52,7 +54,7 @@ SELECTION: Final = Selection(
 CATALOG: Final = tuple(
     CatalogModel(
         id=pin.id,
-        supported_endpoints=pin.supported_endpoints,
+        supported_endpoints=("/responses",),
         capabilities=Capabilities(
             limits=ModelLimits(
                 max_prompt_tokens=pin.max_input_tokens,
@@ -81,16 +83,29 @@ def test_configuration_routes_both_clients_and_keeps_credentials_private(tmp_pat
     key: Final = paths.key.read_text()
     assert paths.token.read_text().strip() == TOKEN.get_secret_value()
     assert key.startswith("sk-")
-    deployments: Final = proxy["model_list"]
-    assert isinstance(deployments, list)
-    assert {entry["model_name"] for entry in deployments if isinstance(entry, dict)} == {
-        pin.id for pin in CHECKPOINT.models
-    }
-    for entry in deployments:
-        assert isinstance(entry, dict)
-        assert isinstance(entry["litellm_params"], dict)
-        assert entry["litellm_params"]["api_base"] == API_BASE
-        assert entry["litellm_params"]["api_key"] == f"os.environ/{UPSTREAM_TOKEN_ENV}"
+    assert proxy["model_list"] == [
+        {
+            "model_name": pin.id,
+            "litellm_params": {
+                "model": f"openai/{pin.id}",
+                "api_base": API_BASE,
+                "api_key": f"os.environ/{UPSTREAM_TOKEN_ENV}",
+                "extra_headers": dict(CHECKPOINT.upstream_headers),
+                "store": False,
+                "timeout": 600,
+                "max_retries": 0,
+            },
+            "model_info": {
+                "mode": "responses",
+                "max_input_tokens": pin.max_input_tokens,
+                "max_output_tokens": pin.max_output_tokens,
+                "supports_function_calling": True,
+                "supports_parallel_function_calling": True,
+                "supports_reasoning": True,
+            },
+        }
+        for pin in CHECKPOINT.models
+    ]
     settings: Final = proxy["litellm_settings"]
     assert isinstance(settings, dict)
     assert settings["callbacks"] == ["gateway_stop_sequences.handler"]
@@ -98,8 +113,8 @@ def test_configuration_routes_both_clients_and_keeps_credentials_private(tmp_pat
     assert codex["model"] == SELECTION.codex_model
     model_catalog: Final[dict[str, JsonValue]] = json.loads((paths.state / "codex/model-catalog.json").read_text())
     models: Final = model_catalog["models"]
-    assert isinstance(models, list) and len(models) == len(CHECKPOINT.models)
-    metadata: Final = next(item for item in models if isinstance(item, dict) and item["slug"] == SELECTION.codex_model)
+    assert isinstance(models, list) and len(models) == 1
+    metadata: Final = models[0]
     assert isinstance(metadata, dict)
     assert metadata["slug"] == SELECTION.codex_model
     assert metadata["base_instructions"] == "Verified test prompt"
@@ -114,16 +129,14 @@ def test_configuration_routes_both_clients_and_keeps_credentials_private(tmp_pat
     assert codex["model_providers"]["copilot_gateway"]["stream_max_retries"] == 5
     assert codex["model_providers"]["copilot_gateway"]["request_max_retries"] == 2
     assert codex["check_for_update_on_startup"] is False
-    assert "model_auto_compact_token_limit" not in codex
-    assert "model_context_window" not in codex
-    assert metadata["auto_compact_token_limit"] < metadata["context_window"]
+    assert codex["model_auto_compact_token_limit"] < codex["model_context_window"]
     assert claude["model"] == SELECTION.claude_model
     claude_env: Final = claude["env"]
     assert isinstance(claude_env, dict)
     assert claude_env["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:14000"
-    assert "ANTHROPIC_MODEL" not in claude_env
-    assert "CLAUDE_CODE_SUBAGENT_MODEL" not in claude_env
-    assert claude_env["CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY"] == "1"
+    for family in ("SONNET", "OPUS", "HAIKU", "FABLE"):
+        assert claude_env[f"ANTHROPIC_DEFAULT_{family}_MODEL"] == SELECTION.claude_model
+    assert claude_env["CLAUDE_CODE_SUBAGENT_MODEL"] == SELECTION.claude_model
     assert claude_env["ENABLE_TOOL_SEARCH"] == "false"
     assert claude_env["DISABLE_AUTOUPDATER"] == "1"
     config_contents: Final = tuple(
@@ -161,10 +174,10 @@ def test_claude_only_setup_skips_codex_and_uses_the_native_client(tmp_path: Path
     assert json.loads((paths.state / "selection.json").read_text())["claude_only"] is True
     claude: Final = json.loads((paths.state / "claude/settings.json").read_text())
     assert claude["model"] == "gpt-6-astra"
-    assert "CLAUDE_CODE_SUBAGENT_MODEL" not in claude["env"]
-    assert "CLAUDE_CODE_SUBAGENT_MODEL_FORCE" not in claude["env"]
+    assert claude["env"]["CLAUDE_CODE_SUBAGENT_MODEL"] == "gpt-6-astra"
+    assert claude["env"]["CLAUDE_CODE_SUBAGENT_MODEL_FORCE"] == "1"
     proxy: Final = json.loads(paths.proxy_config.read_text())
-    assert {model["model_name"] for model in proxy["model_list"]} == {model.id for model in CHECKPOINT.models}
+    assert tuple(model["model_name"] for model in proxy["model_list"]) == ("gpt-6-astra",)
 
     binaries: Final = tmp_path / "bin"
     binaries.mkdir()
@@ -187,65 +200,22 @@ def test_unpinned_mapping_is_rejected() -> None:
     assert "gpt-unqualified" in result.message
 
 
-def test_catalog_refresh_preserves_client_defaults_and_credentials(tmp_path: Path) -> None:
-    paths: Final = Paths(kit=KIT, state=tmp_path / "gateway")
-    prompt: Final = "Verified refresh fixture prompt"
-    checkpoint: Final = CHECKPOINT.model_copy(
-        update={"codex_prompt_sha256": hashlib.sha256(prompt.encode()).hexdigest()}
-    )
-    assert configure(paths, checkpoint, SELECTION, TOKEN, CATALOG, prompt) is None
-    codex_settings: Final = paths.state / "codex/config.toml"
-    claude_settings: Final = paths.state / "claude/settings.json"
-    codex_settings.write_text('model = "user-selected-model"\nmodel_reasoning_effort = "low"\n')
-    claude_preferences: Final = {
-        "model": "user-selected-claude",
-        "theme": "dark",
-        "env": {"ANTHROPIC_BASE_URL": f"http://127.0.0.1:{SELECTION.port}"},
-    }
-    claude_settings.write_text(json.dumps(claude_preferences))
-    home: Final = tmp_path / "home"
-    (home / ".claude").mkdir(parents=True)
-    native_settings: Final = home / ".claude/settings.json"
-    native_settings.write_text(json.dumps(claude_preferences))
-    originals: Final = tuple((path, path.read_bytes()) for path in (codex_settings, paths.key, paths.token))
-    added: Final = CHECKPOINT.models[0].model_copy(update={"id": "gpt-catalog-refresh-fixture"})
-    models: Final = (*CHECKPOINT.models, added)
-    assert refresh_models(paths, checkpoint, SELECTION.checkpoint_sha256, models, {}, home) is None
-    assert all(path.read_bytes() == content for path, content in originals)
-    proxy: Final = json.loads(paths.proxy_config.read_text())
-    assert {entry["model_name"] for entry in proxy["model_list"]} == {model.id for model in models}
-    catalog: Final = json.loads((paths.state / "codex/model-catalog.json").read_text())
-    assert {entry["slug"] for entry in catalog["models"]} == {model.id for model in models}
-    saved: Final = Selection.model_validate_json((paths.state / "selection.json").read_bytes())
-    assert saved.codex_model == SELECTION.codex_model
-    assert saved.claude_model == SELECTION.claude_model
-    assert {model.id for model in saved.catalog_models} == {model.id for model in models}
-    for settings in (json.loads(path.read_text()) for path in (claude_settings, native_settings)):
-        assert {key: value for key, value in settings.items() if key != "modelPicker"} == claude_preferences
-        assert {entry["model"] for entry in settings["modelPicker"]["options"]} == {model.id for model in models}
-    backups: Final = tuple((paths.state / "client-backups").glob("native-*"))
-    assert len(backups) == 1
-    assert json.loads((backups[0] / "claude-settings.json").read_text()) == claude_preferences
-
-
 @pytest.mark.parametrize(
     ("model", "expected"),
     (
         (
             CATALOG[0].model_copy(update={"supported_endpoints": ("/chat/completions",)}),
-            "endpoint support",
+            "Responses support",
         ),
         (
             CATALOG[0].model_copy(update={"capabilities": Capabilities(supports=CATALOG[0].capabilities.supports)}),
-            "capabilities",
+            "token limits",
         ),
         (
             CATALOG[0].model_copy(
                 update={
                     "capabilities": Capabilities(
-                        limits=ModelLimits(
-                            max_prompt_tokens=24000, max_output_tokens=8000, max_context_window_tokens=32000
-                        ),
+                        limits=ModelLimits(max_prompt_tokens=1, max_output_tokens=1, max_context_window_tokens=1),
                         supports=CATALOG[0].capabilities.supports,
                     )
                 }
@@ -326,13 +296,6 @@ def test_token_is_required_and_never_accepted_as_a_cli_value() -> None:
         provided_token(Options(command="catalog", token_env="TEST_TOKEN"), {"TEST_TOKEN": TOKEN.get_secret_value()})
         == TOKEN
     )
-
-
-@pytest.mark.parametrize("prefix", ("gho_", "ghu_", "github_pat_"))
-def test_supported_github_credentials_are_accepted_without_exposing_them(prefix: str) -> None:
-    token: Final = SecretStr(prefix + "test_fixture")
-    assert validate_token(token) == token
-    assert token.get_secret_value() not in repr(token)
 
 
 def test_token_file_requires_private_permissions_and_rejects_temporary_tokens(tmp_path: Path) -> None:
