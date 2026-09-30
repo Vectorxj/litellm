@@ -2,7 +2,9 @@
 
 This directory provisions a loopback-only LiteLLM server for Codex and Claude Code. Both clients use models authorized by an explicitly supplied Copilot GitHub token. Claude Code can use an OpenAI model without an OpenAI API key
 
-The committed single-model checkpoint selects `gpt-6.1-sol`, Python 3.12.13, packaged Codex 0.146.0, and packaged Claude Code 2.1.220. The separately qualified native clients are Codex 0.154.0 and Claude Code 2.1.266. The authenticated catalog advertises a 1,050,000-token context window, a 922,000-token input limit, and a 128,000-token output limit. `checkpoint.json` is the source of truth
+The committed checkpoint keeps `gpt-6-astra` as the Codex and Claude Code default and exposes `gpt-6.1-sol` as an additional pinned gateway model. It does not expose the full account catalog. Software remains Python 3.12.13, packaged Codex 0.146.0, packaged Claude Code 2.1.220, native Codex 0.154.0, and native Claude Code 2.1.266. `checkpoint.json` is the source of truth
+
+GPT-6.1 Sol advertises a 1,050,000-token context window, a 922,000-token input limit, a 128,000-token output limit, and reasoning levels from `none` through `max`. Adding this gateway route does not switch either client's default model
 
 `SKILL.md` is the agent workflow for provisioning and future upgrades. `bootstrap.sh` and the Python modules reproduce the committed checkpoint without discovering a new default model. `EXPERIENCE.md` records the actual compatibility findings and public references
 
@@ -28,7 +30,7 @@ Provide a Copilot GitHub OAuth token through a hidden prompt:
 ```bash
 ./.github/skills/copilot-gateway/bootstrap.sh setup \
   --prompt-token \
-  --claude-model gpt-6.1-sol
+  --claude-model gpt-6-astra
 ```
 
 Alternatively, provide a token file outside the checkout, owned by your user with mode `0600`, or name an environment variable populated by your secret manager:
@@ -36,11 +38,11 @@ Alternatively, provide a token file outside the checkout, owned by your user wit
 ```bash
 ./.github/skills/copilot-gateway/bootstrap.sh setup \
   --token-file /absolute/private/path/copilot-token \
-  --claude-model gpt-6.1-sol
+  --claude-model gpt-6-astra
 
 ./.github/skills/copilot-gateway/bootstrap.sh setup \
   --token-env COPILOT_GITHUB_TOKEN \
-  --claude-model gpt-6.1-sol
+  --claude-model gpt-6-astra
 ```
 
 `--token-stdin` is available for an authorized credential helper. There is deliberately no `--token VALUE` argument, automatic credential-store search, or token embedded in the generated client settings
@@ -51,6 +53,8 @@ This checkpoint targets the standard `github.com` Copilot API host. Enterprise o
 
 The Claude Code model is required explicitly. `--codex-model` overrides the pinned Codex default, but either model must already be qualified in `checkpoint.json`. `--port` selects another unprivileged port if 4000 is occupied
 
+The server exposes all explicitly pinned `checkpoint.json` models. The client configuration uses only the model selected for that client. Keep the default setup above to continue using Astra, or explicitly request `--codex-model gpt-6.1-sol` and/or `--claude-model gpt-6.1-sol` when changing a client default is intended
+
 ### Configure only Claude Code
 
 Use `--claude-only` to leave Codex entirely unconfigured. This mode uses the native Claude Code executable already on `PATH`, rather than installing npm clients. The qualified native version is 2.1.266, recorded separately as `native_claude_version` in `checkpoint.json`. The npm-based two-client checkpoint remains on Claude Code 2.1.220
@@ -60,7 +64,7 @@ claude install 2.1.266
 
 ./.github/skills/copilot-gateway/bootstrap.sh setup \
   --token-file /absolute/private/path/copilot-token \
-  --claude-model gpt-6.1-sol \
+  --claude-model gpt-6-astra \
   --claude-only
 ```
 
@@ -222,7 +226,7 @@ Confirm the trace contains a successful tool invocation and the marker value, no
 
 Copilot CLI can discover the skill under `.github/skills/copilot-gateway`. For another agent, explicitly ask it to read `.github/skills/copilot-gateway/SKILL.md`; no global skill installation is required
 
-A suitable handoff is: "Read `.github/skills/copilot-gateway/SKILL.md`. Configure the committed checkpoint using the private token file I provide. Route both clients to `gpt-6.1-sol`, start the server, back up and merge the standard client settings so I can run `codex` and `claude` directly, and run the real client tool checks"
+A suitable handoff is: "Read `.github/skills/copilot-gateway/SKILL.md`. Configure the committed checkpoint using the private token file I provide. Expose Astra and GPT-6.1 Sol in the gateway, keep both clients on Astra, back up and merge standard client settings, and run real client tool checks"
 
 After a model-only upgrade, start a new conversation or explicitly select the new model. Resumed conversations may retain their previous model and provider-bound reasoning state. Setup does not rewrite or migrate conversation histories
 

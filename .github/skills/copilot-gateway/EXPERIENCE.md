@@ -2,9 +2,9 @@
 
 ## GPT-6.1 Sol checkpoint, 2026-09-30
 
-The current credential advertised and successfully served `gpt-6.1-sol` through `/responses`. Its catalog reported a 1,050,000-token context window, 922,000 maximum input tokens, 128,000 maximum output tokens, and reasoning levels `none`, `low`, `medium`, `high`, `xhigh`, and `max`. The deployment remains single-model; the previously reverted full catalog was not reintroduced
+The current credential advertised and successfully served `gpt-6.1-sol` through `/responses`. Its catalog reported a 1,050,000-token context window, 922,000 maximum input tokens, 128,000 maximum output tokens, and reasoning levels `none`, `low`, `medium`, `high`, `xhigh`, and `max`. Only the explicitly pinned Astra and Sol6.1 routes are deployed; the previously reverted full account catalog was not reintroduced
 
-The server and both native client configurations were backed up before updating the selected model. The upstream credential, local proxy key, native executable versions, previous provider definitions, and permission settings were preserved. The operator's native `xhigh` reasoning preference also remained unchanged. The packaged and native clients keep separate version pins
+The user clarified that adding Sol6.1 to the gateway must not change Codex or Claude Code defaults. After qualification, both native and private client configurations were restored byte for byte from their pre-upgrade Astra backups. The upstream credential, local proxy key, native executable versions, previous provider definitions, permission settings, and `xhigh` preference were preserved. The packaged and native clients keep separate version pins
 
 An actual streaming request through the local gateway completed:
 
@@ -17,7 +17,7 @@ curl --fail-with-body --silent --show-error --no-buffer --max-time 150 \
 
 Observed result: HTTP 200, streamed text `SOL61_MAX_OK`, and a genuine `response.completed` event reporting `gpt-6.1-sol`
 
-Native Codex completed a read plus `apply_patch` workflow, and native Claude Code completed a Read/Edit workflow through the Messages bridge. Both copied a disposable marker byte for byte without a model override. A separate Claude auto-mode request classified and executed a harmless Bash calculation without pre-approving the tool. Native Codex's model API recognized the single new model and all six reasoning levels
+During Sol6.1 qualification, native Codex completed a read plus `apply_patch` workflow, and native Claude Code completed a Read/Edit workflow through the Messages bridge. Both copied a disposable marker byte for byte. A separate Claude auto-mode request classified and executed a harmless Bash calculation without pre-approving the tool. Native Codex recognized Sol6.1 and all six reasoning levels. These checks did not become the final client defaults; both clients were restored to Astra as requested
 
 Codex metadata now includes the same verified generic prompt in both the older `base_instructions` field and the native client's `model_messages.instructions_template` field. The fields carry identical instructions; no handwritten replacement prompt or fabricated model identity was added
 

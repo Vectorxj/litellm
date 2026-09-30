@@ -46,8 +46,8 @@ CHECKPOINT_BYTES: Final = (KIT / "checkpoint.json").read_bytes()
 CHECKPOINT: Final = Checkpoint.model_validate_json(CHECKPOINT_BYTES)
 TOKEN: Final = SecretStr("gho_test_fixture")
 SELECTION: Final = Selection(
-    codex_model="gpt-6.1-sol",
-    claude_model="gpt-6.1-sol",
+    codex_model="gpt-6-astra",
+    claude_model="gpt-6-astra",
     port=14000,
     checkpoint=CHECKPOINT.checkpoint,
     checkpoint_sha256=hashlib.sha256(CHECKPOINT_BYTES).hexdigest(),
@@ -164,7 +164,7 @@ def test_unavailable_model_is_rejected_before_writing_credentials(tmp_path: Path
 
 def test_claude_only_setup_skips_codex_and_uses_the_native_client(tmp_path: Path) -> None:
     options: Final = parse_options(
-        ("setup", "--token-env", "TEST_TOKEN", "--claude-model", "gpt-6.1-sol", "--claude-only")
+        ("setup", "--token-env", "TEST_TOKEN", "--claude-model", "gpt-6-astra", "--claude-only")
     )
     selection: Final = SELECTION.model_copy(
         update={"claude_only": options.claude_only, "codex_model": "gpt-unqualified"}
@@ -175,11 +175,11 @@ def test_claude_only_setup_skips_codex_and_uses_the_native_client(tmp_path: Path
     assert not (paths.state / "clients").exists()
     assert json.loads((paths.state / "selection.json").read_text())["claude_only"] is True
     claude: Final = json.loads((paths.state / "claude/settings.json").read_text())
-    assert claude["model"] == "gpt-6.1-sol"
-    assert claude["env"]["CLAUDE_CODE_SUBAGENT_MODEL"] == "gpt-6.1-sol"
+    assert claude["model"] == "gpt-6-astra"
+    assert claude["env"]["CLAUDE_CODE_SUBAGENT_MODEL"] == "gpt-6-astra"
     assert claude["env"]["CLAUDE_CODE_SUBAGENT_MODEL_FORCE"] == "1"
     proxy: Final = json.loads(paths.proxy_config.read_text())
-    assert tuple(model["model_name"] for model in proxy["model_list"]) == ("gpt-6.1-sol",)
+    assert tuple(model["model_name"] for model in proxy["model_list"]) == ("gpt-6-astra", "gpt-6.1-sol")
 
     binaries: Final = tmp_path / "bin"
     binaries.mkdir()
@@ -202,15 +202,16 @@ def test_unpinned_mapping_is_rejected() -> None:
     assert "gpt-unqualified" in result.message
 
 
-def test_sol61_checkpoint_pins_actual_responses_limits_and_reasoning_levels() -> None:
-    pin: Final = CHECKPOINT.models[0]
-    assert CHECKPOINT.default_codex_model == "gpt-6.1-sol"
-    assert pin.id == CHECKPOINT.default_codex_model
+def test_sol61_is_available_without_replacing_the_astra_default() -> None:
+    pin: Final = next(model for model in CHECKPOINT.models if model.id == "gpt-6.1-sol")
+    assert CHECKPOINT.default_codex_model == "gpt-6-astra"
     assert pin.context_window_tokens == 1050000
     assert pin.max_input_tokens == 922000
     assert pin.max_output_tokens == 128000
     assert pin.reasoning_efforts == ("none", "low", "medium", "high", "xhigh", "max")
-    assert selected_pins(CHECKPOINT, SELECTION) == (pin,)
+    assert selected_pins(CHECKPOINT, SELECTION) == (CHECKPOINT.models[0],)
+    explicit: Final = SELECTION.model_copy(update={"codex_model": pin.id, "claude_model": pin.id})
+    assert selected_pins(CHECKPOINT, explicit) == (pin,)
 
 
 @pytest.mark.parametrize("prefix", ("gho_", "ghu_", "github_pat_"))

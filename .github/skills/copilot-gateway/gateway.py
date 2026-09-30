@@ -265,7 +265,7 @@ def configure(
     pins: Final = selected_pins(checkpoint, selection)
     if isinstance(pins, Problem):
         return pins
-    catalog_problem: Final = validate_catalog(pins, catalog)
+    catalog_problem: Final = validate_catalog(checkpoint.models, catalog)
     if catalog_problem is not None:
         return catalog_problem
     directories: Final = (paths.state, paths.state / "claude") + (
@@ -302,7 +302,7 @@ def configure(
     files: Final = (
         (paths.token, token.get_secret_value() + "\n"),
         (paths.key, key.get_secret_value() + "\n"),
-        (paths.proxy_config, json.dumps(proxy_configuration(checkpoint, pins), indent=2) + "\n"),
+        (paths.proxy_config, json.dumps(proxy_configuration(checkpoint, checkpoint.models), indent=2) + "\n"),
         (
             paths.state / "gateway_stop_sequences.py",
             (paths.kit / "gateway_stop_sequences.py").read_text(encoding="utf-8"),
