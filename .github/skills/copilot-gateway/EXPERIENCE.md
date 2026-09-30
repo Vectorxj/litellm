@@ -1,5 +1,30 @@
 # Qualification notes
 
+## GPT-6.1 Sol checkpoint, 2026-09-30
+
+The current credential advertised and successfully served `gpt-6.1-sol` through `/responses`. Its catalog reported a 1,050,000-token context window, 922,000 maximum input tokens, 128,000 maximum output tokens, and reasoning levels `none`, `low`, `medium`, `high`, `xhigh`, and `max`. The deployment remains single-model; the previously reverted full catalog was not reintroduced
+
+The server and both native client configurations were backed up before updating the selected model. The upstream credential, local proxy key, native executable versions, previous provider definitions, and permission settings were preserved. The operator's native `xhigh` reasoning preference also remained unchanged. The packaged and native clients keep separate version pins
+
+An actual streaming request through the local gateway completed:
+
+```bash
+curl --fail-with-body --silent --show-error --no-buffer --max-time 150 \
+  --header @"$STATE/curl-headers" \
+  http://127.0.0.1:4000/v1/responses \
+  --data '{"model":"gpt-6.1-sol","input":"Reply exactly SOL61_MAX_OK","stream":true,"store":false,"max_output_tokens":4096,"reasoning":{"effort":"max"}}'
+```
+
+Observed result: HTTP 200, streamed text `SOL61_MAX_OK`, and a genuine `response.completed` event reporting `gpt-6.1-sol`
+
+Native Codex completed a read plus `apply_patch` workflow, and native Claude Code completed a Read/Edit workflow through the Messages bridge. Both copied a disposable marker byte for byte without a model override. A separate Claude auto-mode request classified and executed a harmless Bash calculation without pre-approving the tool. Native Codex's model API recognized the single new model and all six reasoning levels
+
+Codex metadata now includes the same verified generic prompt in both the older `base_instructions` field and the native client's `model_messages.instructions_template` field. The fields carry identical instructions; no handwritten replacement prompt or fabricated model identity was added
+
+The active credential is a supported `ghu_` GitHub App user token. Setup accepts this explicitly instead of rejecting it through the older prefix allowlist. Expiry and refresh remain operator-managed
+
+## Original Astra qualification
+
 Qualified on 2026-09-09 with real Copilot-backed inference, Codex 0.146.0, and Claude Code 2.1.220. No OpenAI or Anthropic upstream API key was used. Credentials, complete account catalogs, and raw private logs are intentionally absent from this directory
 
 ## Authentication and model discovery

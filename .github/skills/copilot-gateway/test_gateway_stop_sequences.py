@@ -13,13 +13,13 @@ RESPONSE: Final[dict[str, JsonValue]] = {
     "id": "msg_fixture",
     "type": "message",
     "role": "assistant",
-    "model": "gpt-6-astra",
+    "model": "gpt-6.1-sol",
     "content": [{"type": "text", "text": "<block>deny</block>ignored"}],
     "stop_reason": "end_turn",
     "stop_sequence": None,
     "usage": {"input_tokens": 100, "output_tokens": 12},
 }
-REQUEST: Final[dict[str, object]] = {"model": "gpt-6-astra", "stop_sequences": ["</block>"]}
+REQUEST: Final[dict[str, object]] = {"model": "gpt-6.1-sol", "stop_sequences": ["</block>"]}
 AUTH: Final = UserAPIKeyAuth()
 RESPONSE_ADAPTER: Final = TypeAdapter(AnthropicMessagesResponse)
 

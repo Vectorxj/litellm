@@ -18,7 +18,7 @@ class ModelPin(BaseModel):
     context_window_tokens: int = Field(gt=0)
     max_input_tokens: int = Field(gt=0)
     max_output_tokens: int = Field(gt=0)
-    reasoning_efforts: tuple[Literal["low", "medium", "high", "xhigh", "max"], ...]
+    reasoning_efforts: tuple[Literal["none", "low", "medium", "high", "xhigh", "max"], ...]
 
 
 class Checkpoint(BaseModel):
@@ -31,6 +31,7 @@ class Checkpoint(BaseModel):
     python_version: str
     uv_version: str
     codex_version: str
+    native_codex_version: str | None = None
     codex_prompt_url: str = Field(
         pattern=r"^https://raw\.githubusercontent\.com/openai/codex/[^/]+/codex-rs/[^?#]+\.md$"
     )
@@ -189,6 +190,7 @@ def codex_catalog(checkpoint: Checkpoint, pin: ModelPin, prompt: str) -> Mapping
                 "availability_nux": None,
                 "upgrade": None,
                 "base_instructions": prompt,
+                "model_messages": {"instructions_template": prompt},
                 "supports_reasoning_summary_parameter": True,
                 "default_reasoning_summary": "auto",
                 "support_verbosity": False,

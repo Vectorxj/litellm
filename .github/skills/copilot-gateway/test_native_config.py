@@ -15,8 +15,8 @@ KIT: Final = Path(__file__).resolve().parent
 CHECKPOINT_BYTES: Final = (KIT / "checkpoint.json").read_bytes()
 CHECKPOINT: Final = Checkpoint.model_validate_json(CHECKPOINT_BYTES)
 SELECTION: Final = Selection(
-    codex_model="gpt-6-astra",
-    claude_model="gpt-6-astra",
+    codex_model="gpt-6.1-sol",
+    claude_model="gpt-6.1-sol",
     port=14000,
     checkpoint=CHECKPOINT.checkpoint,
     checkpoint_sha256=hashlib.sha256(CHECKPOINT_BYTES).hexdigest(),
@@ -80,7 +80,7 @@ def test_native_settings_preserve_preferences_and_use_working_secret_helpers(tmp
     original_codex: Final = tomllib.loads(ORIGINAL_CODEX.decode())
     assert "# Keep this personal comment" in codex_text
     assert "# Keep this inline comment" in codex_text
-    assert codex["model"] == "gpt-6-astra"
+    assert codex["model"] == "gpt-6.1-sol"
     assert codex["model_provider"] == "copilot_gateway"
     assert codex["model_catalog_json"] == str(paths.state / "codex/model-catalog.json")
     assert codex["approval_policy"] == original_codex["approval_policy"]
@@ -99,7 +99,7 @@ def test_native_settings_preserve_preferences_and_use_working_secret_helpers(tmp
 
     claude_text: Final = (home / ".claude/settings.json").read_text()
     claude: Final = json.loads(claude_text)
-    assert claude["model"] == "gpt-6-astra"
+    assert claude["model"] == "gpt-6.1-sol"
     assert claude["theme"] == "dark"
     assert claude["env"]["KEEP_ME"] == "unchanged"
     assert claude["env"]["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:14000"
@@ -216,7 +216,7 @@ def test_claude_only_native_configuration_leaves_invalid_codex_settings_untouche
     assert tuple(path.name for path in backup.iterdir()) == ("claude-settings.json",)
     assert (backup / "claude-settings.json").read_bytes() == ORIGINAL_CLAUDE
     claude: Final = json.loads((home / ".claude/settings.json").read_text())
-    assert claude["model"] == "gpt-6-astra"
+    assert claude["model"] == "gpt-6.1-sol"
     assert claude["env"]["KEEP_ME"] == "unchanged"
     assert claude["env"]["CLAUDE_CODE_SUBAGENT_MODEL_FORCE"] == "1"
     assert claude["permissions"]["allow"] == ["Read"]

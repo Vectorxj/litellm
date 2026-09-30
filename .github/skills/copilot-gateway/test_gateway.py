@@ -36,6 +36,7 @@ from gateway import (
     private_directory,
     provided_token,
     validate_catalog,
+    validate_token,
     verify_client,
     write_private,
 )
@@ -45,8 +46,8 @@ CHECKPOINT_BYTES: Final = (KIT / "checkpoint.json").read_bytes()
 CHECKPOINT: Final = Checkpoint.model_validate_json(CHECKPOINT_BYTES)
 TOKEN: Final = SecretStr("gho_test_fixture")
 SELECTION: Final = Selection(
-    codex_model="gpt-6-astra",
-    claude_model="gpt-6-astra",
+    codex_model="gpt-6.1-sol",
+    claude_model="gpt-6.1-sol",
     port=14000,
     checkpoint=CHECKPOINT.checkpoint,
     checkpoint_sha256=hashlib.sha256(CHECKPOINT_BYTES).hexdigest(),
@@ -118,6 +119,7 @@ def test_configuration_routes_both_clients_and_keeps_credentials_private(tmp_pat
     assert isinstance(metadata, dict)
     assert metadata["slug"] == SELECTION.codex_model
     assert metadata["base_instructions"] == "Verified test prompt"
+    assert metadata["model_messages"] == {"instructions_template": "Verified test prompt"}
     assert metadata["context_window"] == CHECKPOINT.models[0].context_window_tokens
     assert metadata["supported_reasoning_levels"] == [
         {"effort": effort, "description": f"{effort.capitalize()} reasoning"}
@@ -162,7 +164,7 @@ def test_unavailable_model_is_rejected_before_writing_credentials(tmp_path: Path
 
 def test_claude_only_setup_skips_codex_and_uses_the_native_client(tmp_path: Path) -> None:
     options: Final = parse_options(
-        ("setup", "--token-env", "TEST_TOKEN", "--claude-model", "gpt-6-astra", "--claude-only")
+        ("setup", "--token-env", "TEST_TOKEN", "--claude-model", "gpt-6.1-sol", "--claude-only")
     )
     selection: Final = SELECTION.model_copy(
         update={"claude_only": options.claude_only, "codex_model": "gpt-unqualified"}
@@ -173,11 +175,11 @@ def test_claude_only_setup_skips_codex_and_uses_the_native_client(tmp_path: Path
     assert not (paths.state / "clients").exists()
     assert json.loads((paths.state / "selection.json").read_text())["claude_only"] is True
     claude: Final = json.loads((paths.state / "claude/settings.json").read_text())
-    assert claude["model"] == "gpt-6-astra"
-    assert claude["env"]["CLAUDE_CODE_SUBAGENT_MODEL"] == "gpt-6-astra"
+    assert claude["model"] == "gpt-6.1-sol"
+    assert claude["env"]["CLAUDE_CODE_SUBAGENT_MODEL"] == "gpt-6.1-sol"
     assert claude["env"]["CLAUDE_CODE_SUBAGENT_MODEL_FORCE"] == "1"
     proxy: Final = json.loads(paths.proxy_config.read_text())
-    assert tuple(model["model_name"] for model in proxy["model_list"]) == ("gpt-6-astra",)
+    assert tuple(model["model_name"] for model in proxy["model_list"]) == ("gpt-6.1-sol",)
 
     binaries: Final = tmp_path / "bin"
     binaries.mkdir()
@@ -198,6 +200,24 @@ def test_unpinned_mapping_is_rejected() -> None:
     result: Final = selected_pins(CHECKPOINT, selection)
     assert isinstance(result, Problem)
     assert "gpt-unqualified" in result.message
+
+
+def test_sol61_checkpoint_pins_actual_responses_limits_and_reasoning_levels() -> None:
+    pin: Final = CHECKPOINT.models[0]
+    assert CHECKPOINT.default_codex_model == "gpt-6.1-sol"
+    assert pin.id == CHECKPOINT.default_codex_model
+    assert pin.context_window_tokens == 1050000
+    assert pin.max_input_tokens == 922000
+    assert pin.max_output_tokens == 128000
+    assert pin.reasoning_efforts == ("none", "low", "medium", "high", "xhigh", "max")
+    assert selected_pins(CHECKPOINT, SELECTION) == (pin,)
+
+
+@pytest.mark.parametrize("prefix", ("gho_", "ghu_", "github_pat_"))
+def test_supported_upstream_token_types_can_be_reused_for_setup(prefix: str) -> None:
+    token: Final = SecretStr(prefix + "fixture")
+    assert validate_token(token) == token
+    assert provided_token(Options(command="catalog", token_env="TOKEN"), {"TOKEN": token.get_secret_value()}) == token
 
 
 @pytest.mark.parametrize(
@@ -285,7 +305,7 @@ def test_codex_prompt_must_match_its_checksum_and_never_receives_auth(tmp_path: 
 
 def test_token_is_required_and_never_accepted_as_a_cli_value() -> None:
     with pytest.raises(SystemExit) as missing_token:
-        parse_options(("setup", "--claude-model", "gpt-6-astra"))
+        parse_options(("setup", "--claude-model", "gpt-6.1-sol"))
     assert missing_token.value.code == 2
     with pytest.raises(SystemExit) as missing_mapping:
         parse_options(("setup", "--token-env", "TEST_TOKEN"))
@@ -389,7 +409,7 @@ def test_compatibility_stream_closes_tool_blocks_when_copilot_changes_item_ids()
             "type": "response.completed",
             "response": {
                 "id": "resp_fixture",
-                "model": "gpt-6-astra",
+                "model": "gpt-6.1-sol",
                 "created_at": 1,
                 "object": "response",
                 "status": "completed",
@@ -403,7 +423,7 @@ def test_compatibility_stream_closes_tool_blocks_when_copilot_changes_item_ids()
     )
     stream: Final = AnthropicStreamWrapper(
         completion_stream=(chunk for chunk in bridge if isinstance(chunk, ModelResponseStream)),
-        model="gpt-6-astra",
+        model="gpt-6.1-sol",
     )
     events: Final = tuple(stream)
     starts: Final = tuple(

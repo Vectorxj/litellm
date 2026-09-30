@@ -154,9 +154,9 @@ def provided_token(options: Options, environ: Mapping[str, str]) -> SecretStr | 
 
 def validate_token(token: SecretStr) -> SecretStr | Problem:
     value: Final = token.get_secret_value()
-    if not value.startswith(("gho_", "github_pat_")) or any(character.isspace() for character in value):
+    if not value.startswith(("gho_", "ghu_", "github_pat_")) or any(character.isspace() for character in value):
         return Problem(
-            "Provide a Copilot GitHub OAuth token or supported fine-grained PAT. "
+            "Provide a Copilot GitHub OAuth token, GitHub App user token, or supported fine-grained PAT. "
             "A short-lived Copilot API token is not a reproducible credential source."
         )
     return token
@@ -360,11 +360,12 @@ def configure_standard_clients(
     updates: Final = plan_native_clients(paths, checkpoint, selection, environ, Path.home())
     if isinstance(updates, Problem):
         return updates
-    claude_version: Final = checkpoint.native_claude_version if selection.claude_only else checkpoint.claude_version
+    claude_version: Final = checkpoint.native_claude_version
+    codex_version: Final = checkpoint.native_codex_version or checkpoint.codex_version
     versions: Final = tuple(
         (
             update.client,
-            f"codex-cli {checkpoint.codex_version}" if update.client == "codex" else f"{claude_version} (Claude Code)",
+            f"codex-cli {codex_version}" if update.client == "codex" else f"{claude_version} (Claude Code)",
         )
         for update in updates
     )

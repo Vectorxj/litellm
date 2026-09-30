@@ -2,7 +2,7 @@
 
 This directory provisions a loopback-only LiteLLM server for Codex and Claude Code. Both clients use models authorized by an explicitly supplied Copilot GitHub token. Claude Code can use an OpenAI model without an OpenAI API key
 
-The committed checkpoint selects `gpt-6-astra`, Python 3.12.13, Codex 0.146.0, and Claude Code 2.1.220. The authenticated catalog advertised a 1,000,000-token context window, an 872,000-token input limit, and a 128,000-token output limit when this checkpoint was qualified. `checkpoint.json` is the source of truth
+The committed single-model checkpoint selects `gpt-6.1-sol`, Python 3.12.13, packaged Codex 0.146.0, and packaged Claude Code 2.1.220. The separately qualified native clients are Codex 0.154.0 and Claude Code 2.1.266. The authenticated catalog advertises a 1,050,000-token context window, a 922,000-token input limit, and a 128,000-token output limit. `checkpoint.json` is the source of truth
 
 `SKILL.md` is the agent workflow for provisioning and future upgrades. `bootstrap.sh` and the Python modules reproduce the committed checkpoint without discovering a new default model. `EXPERIENCE.md` records the actual compatibility findings and public references
 
@@ -28,7 +28,7 @@ Provide a Copilot GitHub OAuth token through a hidden prompt:
 ```bash
 ./.github/skills/copilot-gateway/bootstrap.sh setup \
   --prompt-token \
-  --claude-model gpt-6-astra
+  --claude-model gpt-6.1-sol
 ```
 
 Alternatively, provide a token file outside the checkout, owned by your user with mode `0600`, or name an environment variable populated by your secret manager:
@@ -36,16 +36,16 @@ Alternatively, provide a token file outside the checkout, owned by your user wit
 ```bash
 ./.github/skills/copilot-gateway/bootstrap.sh setup \
   --token-file /absolute/private/path/copilot-token \
-  --claude-model gpt-6-astra
+  --claude-model gpt-6.1-sol
 
 ./.github/skills/copilot-gateway/bootstrap.sh setup \
   --token-env COPILOT_GITHUB_TOKEN \
-  --claude-model gpt-6-astra
+  --claude-model gpt-6.1-sol
 ```
 
 `--token-stdin` is available for an authorized credential helper. There is deliberately no `--token VALUE` argument, automatic credential-store search, or token embedded in the generated client settings
 
-The token must authorize Copilot, not just ordinary GitHub repository access. This kit accepts `gho_` OAuth tokens or `github_pat_` fine-grained PATs. GitHub documents personal-account-owned PATs with the Copilot Requests account permission; this checkpoint's live qualification used a Copilot CLI OAuth token. Other token types supported by the CLI itself are not qualified here. A temporary Copilot API token is rejected rather than treated as a permanent credential. The script checks the current authorized catalog and fails if the requested model or capabilities are unavailable
+The token must authorize Copilot, not just ordinary GitHub repository access. This kit accepts `gho_` OAuth tokens, `ghu_` GitHub App user tokens, and `github_pat_` fine-grained PATs. GitHub documents personal-account-owned PATs with the Copilot Requests account permission. A temporary Copilot API token is rejected rather than treated as a permanent credential. The script checks the current authorized catalog and fails if the requested model or capabilities are unavailable. Expiring credentials must be replaced by the operator; the kit does not implement GitHub App refresh-token rotation
 
 This checkpoint targets the standard `github.com` Copilot API host. Enterprise or data-residency hosts need separate qualification; the script deliberately does not accept an arbitrary destination for the token
 
@@ -60,7 +60,7 @@ claude install 2.1.266
 
 ./.github/skills/copilot-gateway/bootstrap.sh setup \
   --token-file /absolute/private/path/copilot-token \
-  --claude-model gpt-6-astra \
+  --claude-model gpt-6.1-sol \
   --claude-only
 ```
 
@@ -161,7 +161,7 @@ Claude auto mode makes a separate, non-streaming safety-classifier request with 
 
 Streaming requests and requests declaring tools do not use this stop emulation and still reject unsupported stop parameters. The callback does not alter thinking blocks or invent successful tool results. Because truncation happens after generation, upstream usage can include text beyond the marker, and the original usage counts are preserved. This compatibility check is not a safety guarantee for running a non-Claude classifier model
 
-The native model name `gpt-6-astra[1m]` works through Claude Code's own model normalization. Claude sends `gpt-6-astra` on the wire, so no fabricated upstream model or extra gateway alias is needed
+Claude Code controls its own context accounting. Its `[1m]` model suffix requests an extended context window while the upstream model ID remains unchanged; no fabricated provider model or extra gateway alias is needed
 
 Codex receives an explicit model catalog, including the observed context limits and reasoning levels, so it does not silently use unknown-model metadata. Setup downloads the official generic Codex prompt from the pinned release and verifies its SHA-256 before using it. It does not replace the Codex prompt with handwritten gateway instructions. That upstream prompt is distributed under [Codex's Apache-2.0 license](https://github.com/openai/codex/blob/rust-v0.146.0/LICENSE)
 
@@ -181,13 +181,13 @@ STATE="${COPILOT_GATEWAY_HOME:-${XDG_STATE_HOME:-$HOME/.local/state}/litellm-cop
 curl --fail-with-body --silent --show-error \
   --header @"$STATE/curl-headers" \
   http://127.0.0.1:4000/v1/responses \
-  --data '{"model":"gpt-6-astra","input":"Reply exactly GATEWAY_OK","store":false,"max_output_tokens":256,"reasoning":{"effort":"low"}}'
+  --data '{"model":"gpt-6.1-sol","input":"Reply exactly GATEWAY_OK","store":false,"max_output_tokens":256,"reasoning":{"effort":"low"}}'
 
 curl --fail-with-body --silent --show-error \
   --header @"$STATE/curl-headers" \
   --header 'anthropic-version: 2023-06-01' \
   http://127.0.0.1:4000/v1/messages \
-  --data '{"model":"gpt-6-astra","max_tokens":512,"messages":[{"role":"user","content":"Reply exactly GATEWAY_OK"}]}'
+  --data '{"model":"gpt-6.1-sol","max_tokens":512,"messages":[{"role":"user","content":"Reply exactly GATEWAY_OK"}]}'
 ```
 
 Adjust the port and model when using another qualified selection. Do not paste private header files, full debug logs, or tokens into an issue or chat
@@ -222,7 +222,9 @@ Confirm the trace contains a successful tool invocation and the marker value, no
 
 Copilot CLI can discover the skill under `.github/skills/copilot-gateway`. For another agent, explicitly ask it to read `.github/skills/copilot-gateway/SKILL.md`; no global skill installation is required
 
-A suitable handoff is: "Read `.github/skills/copilot-gateway/SKILL.md`. Configure the committed checkpoint using the private token file I provide. Route Claude Code to `gpt-6-astra`, start the server, back up and merge the standard client settings so I can run `codex` and `claude` directly, and run the real client tool checks"
+A suitable handoff is: "Read `.github/skills/copilot-gateway/SKILL.md`. Configure the committed checkpoint using the private token file I provide. Route both clients to `gpt-6.1-sol`, start the server, back up and merge the standard client settings so I can run `codex` and `claude` directly, and run the real client tool checks"
+
+After a model-only upgrade, start a new conversation or explicitly select the new model. Resumed conversations may retain their previous model and provider-bound reasoning state. Setup does not rewrite or migrate conversation histories
 
 To inspect currently authorized GPT models without changing the checkpoint:
 
