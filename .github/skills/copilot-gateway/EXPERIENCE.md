@@ -1,8 +1,14 @@
 # Qualification notes
 
-## GPT-6.1 Sol checkpoint, 2026-09-30
+## Pinned Sol checkpoints, 2026-10-04
 
-The current credential advertised and successfully served `gpt-6.1-sol` through `/responses`. Its catalog reported a 1,050,000-token context window, 922,000 maximum input tokens, 128,000 maximum output tokens, and reasoning levels `none`, `low`, `medium`, `high`, `xhigh`, and `max`. Only the explicitly pinned Astra and Sol6.1 routes are deployed; the previously reverted full account catalog was not reintroduced
+The current credential advertises `gpt-5.6-sol` and `gpt-6.1-sol` through `/responses`. Both catalogs report a 1,050,000-token context window, 922,000 maximum input tokens, 128,000 maximum output tokens, and reasoning levels `none`, `low`, `medium`, `high`, `xhigh`, and `max`. Only the explicitly pinned Astra, Sol5.6, and Sol6.1 routes are deployed
+
+Commit `fbc6a86b72` restored the gateway skill tree byte for byte to the parent of the reverted full-catalog commit. The pinned routes keep the pre-catalog Responses transport, static deployment shape, stop-sequence handling, package lock, and client configuration path. No dynamic account-catalog routing remains
+
+Real streaming requests through the regenerated gateway returned genuine `response.completed` events and the requested text for all three pinned models. A separate GPT-5.6 Sol check produced a function call, accepted its tool result in a subsequent Responses request, and completed with the requested final text. Native Codex selected GPT-5.6 Sol without a fallback-metadata diagnostic, while the standard Codex and Claude Code defaults remained on Astra and completed real file reads
+
+This route rollback does not claim to resolve the separately observed long-running GPT-6.1 Sol stream truncation. The full-catalog implementation was already absent from that experiment's gateway code, and its LiteLLM source revision and HTTP/SSE transport match the pre-catalog checkpoint
 
 The user clarified that adding Sol6.1 to the gateway must not change Codex or Claude Code defaults. After qualification, both native and private client configurations were restored byte for byte from their pre-upgrade Astra backups. The upstream credential, local proxy key, native executable versions, previous provider definitions, permission settings, and `xhigh` preference were preserved. The packaged and native clients keep separate version pins
 
@@ -21,7 +27,7 @@ During Sol6.1 qualification, native Codex completed a read plus `apply_patch` wo
 
 Codex metadata now includes the same verified generic prompt in both the older `base_instructions` field and the native client's `model_messages.instructions_template` field. The fields carry identical instructions; no handwritten replacement prompt or fabricated model identity was added
 
-The active credential is a supported `ghu_` GitHub App user token. Setup accepts this explicitly instead of rejecting it through the older prefix allowlist. Expiry and refresh remain operator-managed
+Setup accepts supported `gho_` OAuth tokens and `ghu_` GitHub App user tokens instead of restricting qualification to one credential type. Expiry and refresh remain operator-managed
 
 ## Original Astra qualification
 

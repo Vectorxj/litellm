@@ -15,7 +15,7 @@ For a fresh environment, ask the user to supply a Copilot GitHub OAuth token, Gi
 
 When switching credentials, preserve the old token privately and do not use it as a fallback unless authorized. Existing provider-bound input IDs or encrypted reasoning may fail under the new credential. Diagnose the first upstream error before a later router cooldown: a 401 ownership error can become a misleading 429. Preserve the original conversation and get explicit approval before lossy migration or removing opaque reasoning state
 
-Distinguish gateway availability from client defaults. The checkpoint exposes Astra and GPT-6.1 Sol, while both clients remain on Astra unless a default-model change is explicitly requested. Setup still requires `--claude-model`. Do not switch client defaults merely because a new gateway model is added, re-enable the reverted full account catalog, or touch unrelated experiment repositories
+Distinguish gateway availability from client defaults. The checkpoint exposes GPT-5.6 Sol, Astra, and GPT-6.1 Sol, while both clients remain on Astra unless a default-model change is explicitly requested. Setup still requires `--claude-model`. Do not switch client defaults merely because a new gateway model is added, re-enable the reverted full account catalog, or touch unrelated experiment repositories
 
 Recheck subagent model precedence when upgrading the client. Claude Code 2.1.257 and later document `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1` for forcing an explicitly chosen model over agent-definition overrides. Do not assume an environment default alone forces every subagent, and test the intended behavior before changing the pinned client
 

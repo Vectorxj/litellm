@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "checkpoint": "astra-default-sol61-2026-09-30",
+  "checkpoint": "astra-default-sol56-sol61-2026-10-04",
   "source_commit": "ee7c7e14f3dd7c4c3930a423440ec26427e2c554",
   "uv_lock_sha256": "aa6c67c5f253a6514afe415f95d9d539e1199332e04f3216fdeff44d99c4238e",
   "python_version": "3.12.13",
@@ -24,6 +24,13 @@
       "max_input_tokens": 872000,
       "max_output_tokens": 128000,
       "reasoning_efforts": ["low", "medium", "high", "xhigh", "max"]
+    },
+    {
+      "id": "gpt-5.6-sol",
+      "context_window_tokens": 1050000,
+      "max_input_tokens": 922000,
+      "max_output_tokens": 128000,
+      "reasoning_efforts": ["none", "low", "medium", "high", "xhigh", "max"]
     },
     {
       "id": "gpt-6.1-sol",

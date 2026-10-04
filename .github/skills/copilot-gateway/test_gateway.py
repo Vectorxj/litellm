@@ -114,8 +114,20 @@ def test_configuration_routes_both_clients_and_keeps_credentials_private(tmp_pat
     assert codex["model"] == SELECTION.codex_model
     model_catalog: Final[dict[str, JsonValue]] = json.loads((paths.state / "codex/model-catalog.json").read_text())
     models: Final = model_catalog["models"]
-    assert isinstance(models, list) and len(models) == 1
-    metadata: Final = models[0]
+    assert isinstance(models, list)
+    assert tuple(model["slug"] for model in models if isinstance(model, dict)) == tuple(
+        pin.id for pin in CHECKPOINT.models
+    )
+    for pin in CHECKPOINT.models:
+        pin_metadata: Final = next(model for model in models if isinstance(model, dict) and model["slug"] == pin.id)
+        assert pin_metadata["context_window"] == pin.context_window_tokens
+        assert pin_metadata["auto_compact_token_limit"] == pin.max_input_tokens * 9 // 10
+        assert pin_metadata["supported_reasoning_levels"] == [
+            {"effort": effort, "description": f"{effort.capitalize()} reasoning"} for effort in pin.reasoning_efforts
+        ]
+    metadata: Final = next(
+        model for model in models if isinstance(model, dict) and model["slug"] == SELECTION.codex_model
+    )
     assert isinstance(metadata, dict)
     assert metadata["slug"] == SELECTION.codex_model
     assert metadata["base_instructions"] == "Verified test prompt"
@@ -179,7 +191,11 @@ def test_claude_only_setup_skips_codex_and_uses_the_native_client(tmp_path: Path
     assert claude["env"]["CLAUDE_CODE_SUBAGENT_MODEL"] == "gpt-6-astra"
     assert claude["env"]["CLAUDE_CODE_SUBAGENT_MODEL_FORCE"] == "1"
     proxy: Final = json.loads(paths.proxy_config.read_text())
-    assert tuple(model["model_name"] for model in proxy["model_list"]) == ("gpt-6-astra", "gpt-6.1-sol")
+    assert tuple(model["model_name"] for model in proxy["model_list"]) == (
+        "gpt-6-astra",
+        "gpt-5.6-sol",
+        "gpt-6.1-sol",
+    )
 
     binaries: Final = tmp_path / "bin"
     binaries.mkdir()
@@ -202,8 +218,9 @@ def test_unpinned_mapping_is_rejected() -> None:
     assert "gpt-unqualified" in result.message
 
 
-def test_sol61_is_available_without_replacing_the_astra_default() -> None:
-    pin: Final = next(model for model in CHECKPOINT.models if model.id == "gpt-6.1-sol")
+@pytest.mark.parametrize("model_id", ("gpt-5.6-sol", "gpt-6.1-sol"))
+def test_sol_models_are_available_without_replacing_the_astra_default(model_id: str) -> None:
+    pin: Final = next(model for model in CHECKPOINT.models if model.id == model_id)
     assert CHECKPOINT.default_codex_model == "gpt-6-astra"
     assert pin.context_window_tokens == 1050000
     assert pin.max_input_tokens == 922000

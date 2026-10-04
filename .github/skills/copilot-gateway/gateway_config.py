@@ -171,7 +171,7 @@ def codex_configuration(checkpoint: Checkpoint, selection: Selection, pin: Model
     )
 
 
-def codex_catalog(checkpoint: Checkpoint, pin: ModelPin, prompt: str) -> Mapping[str, JsonValue]:
+def codex_catalog(checkpoint: Checkpoint, prompt: str) -> Mapping[str, JsonValue]:
     return {
         "models": [
             {
@@ -205,6 +205,7 @@ def codex_catalog(checkpoint: Checkpoint, pin: ModelPin, prompt: str) -> Mapping
                 "experimental_supported_tools": [],
                 "input_modalities": ["text", "image"],
             }
+            for pin in checkpoint.models
         ]
     }
 

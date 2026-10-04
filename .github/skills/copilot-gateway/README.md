@@ -2,9 +2,9 @@
 
 This directory provisions a loopback-only LiteLLM server for Codex and Claude Code. Both clients use models authorized by an explicitly supplied Copilot GitHub token. Claude Code can use an OpenAI model without an OpenAI API key
 
-The committed checkpoint keeps `gpt-6-astra` as the Codex and Claude Code default and exposes `gpt-6.1-sol` as an additional pinned gateway model. It does not expose the full account catalog. Software remains Python 3.12.13, packaged Codex 0.146.0, packaged Claude Code 2.1.220, native Codex 0.154.0, and native Claude Code 2.1.266. `checkpoint.json` is the source of truth
+The committed checkpoint keeps `gpt-6-astra` as the Codex and Claude Code default and exposes `gpt-5.6-sol` and `gpt-6.1-sol` as additional pinned gateway models. It does not expose the full account catalog. Software remains Python 3.12.13, packaged Codex 0.146.0, packaged Claude Code 2.1.220, native Codex 0.154.0, and native Claude Code 2.1.266. `checkpoint.json` is the source of truth
 
-GPT-6.1 Sol advertises a 1,050,000-token context window, a 922,000-token input limit, a 128,000-token output limit, and reasoning levels from `none` through `max`. Adding this gateway route does not switch either client's default model
+GPT-5.6 Sol and GPT-6.1 Sol each advertise a 1,050,000-token context window, a 922,000-token input limit, a 128,000-token output limit, and reasoning levels from `none` through `max`. Adding these gateway routes does not switch either client's default model
 
 `SKILL.md` is the agent workflow for provisioning and future upgrades. `bootstrap.sh` and the Python modules reproduce the committed checkpoint without discovering a new default model. `EXPERIENCE.md` records the actual compatibility findings and public references
 
@@ -53,7 +53,7 @@ This checkpoint targets the standard `github.com` Copilot API host. Enterprise o
 
 The Claude Code model is required explicitly. `--codex-model` overrides the pinned Codex default, but either model must already be qualified in `checkpoint.json`. `--port` selects another unprivileged port if 4000 is occupied
 
-The server exposes all explicitly pinned `checkpoint.json` models. The client configuration uses only the model selected for that client. Keep the default setup above to continue using Astra, or explicitly request `--codex-model gpt-6.1-sol` and/or `--claude-model gpt-6.1-sol` when changing a client default is intended
+The server and Codex model picker expose all explicitly pinned `checkpoint.json` models. The client defaults remain on the models selected during setup. Keep the default setup above to continue using Astra, or explicitly request `--codex-model gpt-5.6-sol`, `--codex-model gpt-6.1-sol`, or the corresponding `--claude-model` value when changing a client default is intended
 
 ### Configure only Claude Code
 
@@ -226,7 +226,7 @@ Confirm the trace contains a successful tool invocation and the marker value, no
 
 Copilot CLI can discover the skill under `.github/skills/copilot-gateway`. For another agent, explicitly ask it to read `.github/skills/copilot-gateway/SKILL.md`; no global skill installation is required
 
-A suitable handoff is: "Read `.github/skills/copilot-gateway/SKILL.md`. Configure the committed checkpoint using the private token file I provide. Expose Astra and GPT-6.1 Sol in the gateway, keep both clients on Astra, back up and merge standard client settings, and run real client tool checks"
+A suitable handoff is: "Read `.github/skills/copilot-gateway/SKILL.md`. Configure the committed checkpoint using the private token file I provide. Expose GPT-5.6 Sol, Astra, and GPT-6.1 Sol in the gateway, keep both clients on Astra, back up and merge standard client settings, and run real client tool checks"
 
 After a model-only upgrade, start a new conversation or explicitly select the new model. Resumed conversations may retain their previous model and provider-bound reasoning state. Setup does not rewrite or migrate conversation histories
 

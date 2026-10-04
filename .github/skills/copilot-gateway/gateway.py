@@ -292,7 +292,7 @@ def configure(
             ),
             (
                 paths.state / "codex/model-catalog.json",
-                json.dumps(codex_catalog(checkpoint, pin, codex_prompt), indent=2) + "\n",
+                json.dumps(codex_catalog(checkpoint, codex_prompt), indent=2) + "\n",
             ),
             (paths.state / "codex/prompt.md", codex_prompt),
             (paths.state / "clients/package.json", (paths.kit / "package.json").read_text(encoding="utf-8")),
