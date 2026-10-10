@@ -1,0 +1,40 @@
+--- a/dist/token-kSGCOmTG.js
++++ b/dist/token-kSGCOmTG.js
+@@ -1993,0 +1994,10 @@
++const isDirectCopilotOauth = () => process.env.COPILOT_API_OAUTH_APP?.trim() === "copilot-cli";
++const directCopilotHeaders = (state, requestId = randomUUID(), vision = false) => ({
++	Authorization: `Bearer ${state.githubToken}`,
++	Accept: "application/json",
++	"Content-Type": "application/json",
++	"User-Agent": "copilot-api-gateway/2.7.11",
++	"Copilot-Integration-Id": "copilot-developer-cli",
++	"X-Request-Id": requestId,
++	...(vision ? { "Copilot-Vision-Request": "true" } : {})
++});
+@@ -2085,0 +2096 @@
++	if (isDirectCopilotOauth()) return "https://api.githubcopilot.com";
+@@ -2092,0 +2104 @@
++	if (isDirectCopilotOauth()) return;
+@@ -2119,0 +2132 @@
++	if (isDirectCopilotOauth()) return directCopilotHeaders(state);
+@@ -2132,0 +2146 @@
++	if (isDirectCopilotOauth()) return directCopilotHeaders(state, requestId, vision);
+@@ -2150,0 +2165 @@
++	if (isDirectCopilotOauth()) return { ...preparedHeaders };
+@@ -2211,0 +2227 @@
++	if (isDirectCopilotOauth()) return directCopilotHeaders(state);
+@@ -2575,0 +2592,6 @@
++	if (isDirectCopilotOauth()) {
++		if (!state.githubToken) throw new Error("Copilot CLI OAuth token not found");
++		state.copilotToken = state.githubToken;
++		stopCopilotRefreshLoop();
++		return;
++	}
+--- a/dist/copilot-runtime-Dg3ywZkl.js
++++ b/dist/copilot-runtime-Dg3ywZkl.js
+@@ -287,0 +288,5 @@
++	if (process.env.COPILOT_API_OAUTH_APP?.trim() === "copilot-cli") {
++		await setupCopilotToken();
++		await cacheModels();
++		return;
++	}

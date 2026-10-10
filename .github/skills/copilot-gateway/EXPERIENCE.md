@@ -1,5 +1,36 @@
 # Qualification notes
 
+## copilot-api migration, 2026-10-10
+
+The operator requested replacing the host LiteLLM server with `caozhiyuan/copilot-api` on the same loopback port and exposing all enabled models. The installed npm release is `@jeffreycao/copilot-api@2.7.11`, corresponding to inspected source commit `ce13231da163d0eab2fe112ee8ca293e04af6160`. Node remains 22.23.1 and native Codex remains 0.159.3
+
+The discussion in [caozhiyuan/copilot-api#298](https://github.com/caozhiyuan/copilot-api/issues/298) distinguishes the gateway's upstream WebSocket setting from Codex's downstream setting. This deployment sets both to HTTP/SSE. Reports of success in that issue are not evidence that the independent, approximately 630-second truncation has been resolved. No stream completion is fabricated and no partial generation is replayed by the migration
+
+The existing credential returned HTTP 200 from direct Copilot model discovery but HTTP 403 from `/copilot_internal/v2/token`. Rather than switch accounts, fabricate a session token, or identify as an editor, the version-specific `copilot-api-direct-oauth.patch` adds an opt-in direct CLI OAuth path. Package transport modules and route handlers are unchanged. The old token, key, LiteLLM state, normal client configuration backup, and experimental snapshots were preserved
+
+Authenticated discovery matched all 22 upstream-enabled picker or embedding entries. Codex's complete catalog contained 19 coding-compatible entries. The 16 other raw account-catalog entries were hidden or disabled by upstream metadata, not by a local whitelist. Authenticated requests through all three previously selected GPT models returned HTTP 200 and genuine `response.completed` events. Unauthenticated inference returned HTTP 401
+
+These non-secret commands exercise the deployed backend:
+
+```bash
+STATE="${COPILOT_API_HOME:-$HOME/.local/state/copilot-api-gateway}"
+for model in gpt-6-astra gpt-5.6-sol gpt-6.1-sol; do
+  curl --fail-with-body --silent --show-error --no-buffer --max-time 180 \
+    --header @"$STATE/curl-headers" \
+    http://127.0.0.1:4000/v1/responses \
+    --data "{\"model\":\"$model\",\"input\":\"Reply exactly MIGRATION_OK\",\"stream\":true,\"store\":false,\"max_output_tokens\":1024,\"reasoning\":{\"effort\":\"low\"}}"
+done
+
+node .github/skills/copilot-gateway/refresh-copilot-api-catalog.mjs
+node --test .github/skills/copilot-gateway/test_copilot_api.mjs
+```
+
+Observed inference result for each model: `MIGRATION_OK` followed by a real completed response identifying the requested model. Native Codex, using its standard settings without injected credentials, read a marker, used `apply_patch` to copy it, compared both files successfully, and completed its turn. An explicitly selected Gemini 3.8 Flash also completed a native Codex tool read through the project's Chat Completions adapter
+
+GPT-6.1 Sol/xhigh separately completed a streaming function call and a subsequent request containing the original response output, encrypted reasoning when present, and the real tool result. The embeddings endpoint returned a 1536-dimensional vector for `text-embedding-3-small` with an array input. A string input was rejected by upstream with HTTP 400, so the working probe used the upstream-supported array shape
+
+No long-duration recurrence was replayed and no original conversation was resumed or migrated. This qualification establishes working routing and tools, not a fix for every long-session transport failure. The replacement server is attached to the agent session; the README's foreground command is required after that session exits
+
 ## Pinned Sol checkpoints, 2026-10-04
 
 The current credential advertises `gpt-5.6-sol` and `gpt-6.1-sol` through `/responses`. Both catalogs report a 1,050,000-token context window, 922,000 maximum input tokens, 128,000 maximum output tokens, and reasoning levels `none`, `low`, `medium`, `high`, `xhigh`, and `max`. Only the explicitly pinned Astra, Sol5.6, and Sol6.1 routes are deployed

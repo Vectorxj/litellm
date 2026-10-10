@@ -1,4 +1,10 @@
-# Set up Claude Code and Codex on a new machine
+# Copilot gateway setup
+
+The current host Codex gateway uses `caozhiyuan/copilot-api` on `127.0.0.1:4000`, with all enabled Copilot models exposed and Astra/xhigh retained as the Codex default. See [the current gateway instructions](.github/skills/copilot-gateway/README.md#current-codex-backend-copilot-api) for startup, authentication, model discovery, and the HTTP/SSE settings from caozhiyuan/copilot-api#298
+
+The prompt below reproduces the historical LiteLLM setup. Do not apply it over the current copilot-api deployment unless intentionally rolling back
+
+## Historical Claude Code and Codex setup on a new machine
 
 Copy the prompt below into an agent on the new machine. It uses this fork's existing Copilot gateway skill and scripts to configure the normal `codex` and `claude` commands
 

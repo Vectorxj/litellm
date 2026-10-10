@@ -7,6 +7,14 @@ description: Configure or update a reproducible local LiteLLM server that sends 
 
 Read `README.md`, `EXPERIENCE.md`, and `checkpoint.json` in this directory before changing the setup
 
+## Active copilot-api backend
+
+The host Codex gateway migrated to `caozhiyuan/copilot-api` 2.7.11 on 2026-10-10. Follow the current-backend section of `README.md` for that deployment. Do not run the historical LiteLLM `bootstrap.sh setup` or `serve` workflow over it unless a rollback is explicitly requested
+
+The replacement exposes all enabled Copilot picker and embedding models without a local whitelist. Codex stays on Astra/xhigh and uses a complete per-model local catalog. Keep `useResponsesApiWebSocket: false` on the server and `supports_websockets = false` in Codex as documented in caozhiyuan/copilot-api#298. Do not map models to the separate ChatGPT `codex/` provider
+
+The pinned package requires the checked-in direct CLI OAuth compatibility patch for the supplied credential. The launcher verifies its module hashes. This patch changes authentication and identification only, not streaming behavior. Do not claim the historical long-stream truncation is fixed based on the migration's short inference and tool checks
+
 ## Required inputs
 
 Require an explicit credential source and an explicit model for Claude Code. Accept a private token file, a named environment variable, standard input, or a hidden terminal prompt. Never ask for a token in chat, put one in a command argument, print credentials, or commit generated state
@@ -15,7 +23,7 @@ For a fresh environment, ask the user to supply a Copilot GitHub OAuth token, Gi
 
 When switching credentials, preserve the old token privately and do not use it as a fallback unless authorized. Existing provider-bound input IDs or encrypted reasoning may fail under the new credential. Diagnose the first upstream error before a later router cooldown: a 401 ownership error can become a misleading 429. Preserve the original conversation and get explicit approval before lossy migration or removing opaque reasoning state
 
-Distinguish gateway availability from client defaults. The checkpoint exposes GPT-5.6 Sol, Astra, and GPT-6.1 Sol, while both clients remain on Astra unless a default-model change is explicitly requested. Setup still requires `--claude-model`. Do not switch client defaults merely because a new gateway model is added, re-enable the reverted full account catalog, or touch unrelated experiment repositories
+Distinguish gateway availability from client defaults. The historical LiteLLM checkpoint exposes GPT-5.6 Sol, Astra, and GPT-6.1 Sol, while both clients remain on Astra unless a default-model change is explicitly requested. Legacy setup still requires `--claude-model`. The replacement copilot-api backend exposes all enabled models as explicitly requested. Do not switch client defaults merely because a gateway model is added or touch unrelated experiment repositories
 
 Recheck subagent model precedence when upgrading the client. Claude Code 2.1.257 and later document `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1` for forcing an explicitly chosen model over agent-definition overrides. Do not assume an environment default alone forces every subagent, and test the intended behavior before changing the pinned client
 
