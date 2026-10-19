@@ -83,6 +83,23 @@ Completed-item history can grow after a broken stream without receiving fresh te
 node --test .github/skills/copilot-gateway/test_copilot_api_diagnostics.mjs
 ```
 
+### Direct transport controls
+
+`probe-copilot-http.mjs` compares a separate gateway on loopback port 4004 with independent native Node HTTPS and libcurl connections to the fixed Copilot endpoint. It never executes returned model tools. The probes have a 1200-second local deadline, report local cancellation separately from peer EOF, and exit unsuccessfully unless a genuine completed response arrives
+
+Prepare a private case directory containing `client-request.private.json` for the gateway arm, the gateway's exact outbound bytes as `upstream-request.private.body`, its explicitly captured non-credential headers as `upstream-headers.private.json`, the diagnostic `proxy-key`, and the authorized `copilot-cli/github_token`. Credential files must be owned by the caller and private. Use an isolated one-request capture, never blanket body logging on a shared gateway. Compare outgoing-body hashes before interpreting results
+
+```bash
+node .github/skills/copilot-gateway/probe-copilot-http.mjs gateway "$PRIVATE_CASE"
+node .github/skills/copilot-gateway/probe-copilot-http.mjs direct "$PRIVATE_CASE"
+node .github/skills/copilot-gateway/probe-copilot-http.mjs curl "$PRIVATE_CASE"
+node --test .github/skills/copilot-gateway/test_probe_copilot_http.mjs
+```
+
+Run the direct arms after the gateway has captured its outgoing request. Native HTTPS records upload completion, verified TLS, response framing, peer EOF, socket closure and transport errors. The curl arm bypasses Node's HTTP transport and proxy environment variables, uses HTTP/1.1, and records transfer metrics and selected upstream request IDs. Its temporary credential header file is removed afterward. Remove private request bodies after investigation and retain only non-secret metadata
+
+Short completed controls do not qualify a long-stream fix. A peer EOF during an incomplete HTTP body and curl error 18 establish premature transfer termination; they do not identify a specific internal service or prove a documented provider timeout policy
+
 ## Historical LiteLLM checkpoint
 
 The remaining instructions reproduce the previous LiteLLM backend, not the active copilot-api backend

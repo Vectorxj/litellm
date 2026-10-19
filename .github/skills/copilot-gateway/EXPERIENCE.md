@@ -1,5 +1,25 @@
 # Qualification notes
 
+## Independent direct controls, 2026-10-19
+
+The follow-up investigation kept both existing ports 4000 and 4001 unchanged and used a temporary copilot-api instance on port 4004. It privately captured the exact outgoing body and explicit non-credential headers, then sent those same bytes and the same authorized credential directly through native Node HTTPS and libcurl 7.81.0. No model-generated tool was executed, and original actor histories were left unchanged
+
+The first checkpoint completed quickly in all three arms: approximately 42 seconds through the gateway, 27 seconds through native HTTPS and 45 seconds through curl. These successful short generations did not resolve the long-stream question. The second case retained the historical continuation after five interrupted attempts and reproduced the failure across all three paths
+
+| Second-case arm | Measured duration | Outcome |
+|---|---:|---|
+| Gateway upstream fetch | 632.395 seconds | HTTP 200 followed by `UND_ERR_SOCKET`, no upstream terminal response |
+| Direct native Node HTTPS | Peer EOF at 631.493 seconds | Incomplete HTTP response, subsequent `ECONNRESET`, no completed response |
+| Direct libcurl HTTP/1.1 | 631.353 seconds | Exit 18: transfer closed with outstanding read data remaining |
+
+The direct native connection verified TLS 1.3 against the Copilot hostname, emitted its request `finish` event at 1.425 seconds, and observed peer EOF before any probe-initiated cleanup. That event means the request bytes were handed to the transport, not proof of when the server finished reading them. Its local abort flag remained false. The interval from that event to peer EOF was 630.068 seconds. Curl was still receiving response data approximately 1.1 seconds before termination. Neither direct client used the copilot-api request handler, Undici transport, Codex retry loop or a 600-second local timeout
+
+The exact gateway outbound body hash matched both direct requests. All three received 71 completed output items but no final completed response. This rules out a gateway-local read timer, connection pool or SSE conversion as a necessary cause of this reproduced failure. The observed failure boundary is the remote Copilot connection or its network path. It is consistent with an approximately 630-second active-request cutoff, but identifying a specific Copilot service, edge rule or request-triggered backend bug requires server-side evidence
+
+A separate direct HTTPX control changed only `stream` to `false`. It reached its local read timeout after 1201.8 seconds without receiving a usable response. That is a client-side timeout, not an observed upstream HTTP 504 and not a successful non-streaming workaround
+
+The temporary port-4004 gateway was stopped after the controls. Request IDs, socket-event ordering, payload hashes and transfer metrics remain in private metadata artifacts; request bodies and temporary credential headers were not committed
+
 ## Isolated stream and context investigation, 2026-10-19
 
 An independent copilot-api 2.7.11 instance on loopback port 4001 reproduced both supplied context-window failures using copies of the actor-private histories and native Codex 0.159.3. The production gateway on port 4000, original session files, and experimental configurations were hash-checked and left unchanged. No model-generated tool was executed while replaying the captured long request
