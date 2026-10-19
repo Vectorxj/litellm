@@ -25,6 +25,8 @@ export function createSseSummary() {
   let terminal = null;
   let errorCode = null;
   let usage = null;
+  let reportedModel = null;
+  let reportedOutputLimit = null;
   let malformed = 0;
   let oversized = 0;
   return {
@@ -46,6 +48,12 @@ export function createSseSummary() {
         }
         const type = identifier(event?.type);
         if (!type) { malformed += 1; continue; }
+        if (event.response) {
+          reportedModel = identifier(event.response.model) ?? reportedModel;
+          if (Number.isSafeInteger(event.response.max_output_tokens)) {
+            reportedOutputLimit = event.response.max_output_tokens;
+          }
+        }
         counts.set(type, (counts.get(type) ?? 0) + 1);
         if (["response.completed", "response.failed", "response.incomplete", "error"].includes(type)) {
           terminal = type;
@@ -61,7 +69,10 @@ export function createSseSummary() {
       if (buffer.length > 1048576) { oversized += 1; buffer = ""; skipLine = true; }
     },
     snapshot() {
-      return { event_counts: Object.fromEntries(counts), terminal, error_code: errorCode, usage, malformed, oversized };
+      return {
+        event_counts: Object.fromEntries(counts), terminal, error_code: errorCode, usage, malformed, oversized,
+        reported_model: reportedModel, reported_max_output_tokens: reportedOutputLimit,
+      };
     },
   };
 }

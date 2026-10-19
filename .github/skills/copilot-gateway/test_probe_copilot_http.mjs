@@ -9,11 +9,14 @@ import { comparisonHeaders, createSseSummary, runProbe } from "./probe-copilot-h
 test("independent probe observes fragmented SSE without retaining private content", () => {
   const summary = createSseSummary();
   const data = Buffer.from('data: {"type":"response.output_text.delta","delta":"private text"}\n\n'
-    + 'data: {"type":"response.completed","response":{"usage":{"input_tokens":100,"output_tokens":2}}}\n\n');
+    + 'data: {"type":"response.completed","response":{"model":"gpt-5.6-sol","max_output_tokens":128000,'
+    + '"usage":{"input_tokens":100,"output_tokens":2}}}\n\n');
   for (let position = 0; position < data.length; position += 7) summary.push(data.subarray(position, position + 7));
   assert.deepEqual(summary.snapshot().event_counts, { "response.output_text.delta": 1, "response.completed": 1 });
   assert.equal(summary.snapshot().terminal, "response.completed");
   assert.equal(summary.snapshot().usage.input_tokens, 100);
+  assert.equal(summary.snapshot().reported_model, "gpt-5.6-sol");
+  assert.equal(summary.snapshot().reported_max_output_tokens, 128000);
   assert.equal(JSON.stringify(summary.snapshot()).includes("private text"), false);
   assert.equal(comparisonHeaders.includes("authorization"), false);
   assert.equal(comparisonHeaders.includes("cookie"), false);
@@ -29,14 +32,18 @@ test("EOF without a terminal event remains incomplete", () => {
   assert.equal(JSON.stringify(summary.snapshot()).includes("private error detail"), false);
 });
 
-test("a real peer EOF is distinguished from local cancellation and an application error", async () => {
+for (const completeHttp of [false, true]) test(`HTTP complete=${completeHttp} does not imply response.completed`, async () => {
   const directory = await mkdtemp(join(tmpdir(), "copilot-http-probe-"));
   const server = http.createServer((request, response) => {
     request.resume();
     request.on("end", () => {
       response.writeHead(200, { "content-type": "text/event-stream" });
-      response.write('data: {"type":"response.output_item.done"}\n\n');
-      setTimeout(() => response.socket.end(), 25);
+      if (completeHttp) {
+        response.end('data: {"type":"response.output_text.delta","delta":"partial"}\n\n');
+      } else {
+        response.write('data: {"type":"response.output_item.done"}\n\n');
+        setTimeout(() => response.socket.end(), 25);
+      }
     });
   });
   try {
@@ -46,11 +53,11 @@ test("a real peer EOF is distinguished from local cancellation and an applicatio
     const observed = await runProbe("gateway", directory, server.address().port);
     const result = JSON.parse(await readFile(join(directory, "gateway-result.json"), "utf8"));
     assert.deepEqual(observed, result);
-    assert.equal(result.peer_end_observed, true);
+    assert.equal(result.peer_end_observed, !completeHttp);
     assert.equal(result.probe_aborted, false);
-    assert.equal(result.http_complete, false);
+    assert.equal(result.http_complete, completeHttp);
     assert.equal(result.terminal, null);
-    assert.equal(result.transport_error_code, "ECONNRESET");
+    assert.equal(result.transport_error_code, completeHttp ? null : "ECONNRESET");
     assert.equal(result.error_code, null);
   } finally {
     await new Promise((resolve) => server.close(resolve));

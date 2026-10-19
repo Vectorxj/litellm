@@ -96,7 +96,7 @@ node .github/skills/copilot-gateway/probe-copilot-http.mjs curl "$PRIVATE_CASE"
 node --test .github/skills/copilot-gateway/test_probe_copilot_http.mjs
 ```
 
-Run the direct arms after the gateway has captured its outgoing request. Native HTTPS records upload completion, verified TLS, response framing, peer EOF, socket closure and transport errors. The curl arm bypasses Node's HTTP transport and proxy environment variables, uses HTTP/1.1, and records transfer metrics and selected upstream request IDs. Its temporary credential header file is removed afterward. Remove private request bodies after investigation and retain only non-secret metadata
+Run the direct arms after the gateway has captured its outgoing request. Native HTTPS records upload completion, verified TLS, response framing, peer EOF, socket closure and transport errors. The curl arm bypasses Node's HTTP transport and proxy environment variables, uses HTTP/1.1, and records transfer metrics and selected upstream request IDs. SSE summaries retain the reported model and output limit when supplied by upstream. Its temporary credential header file is removed afterward. Remove private request bodies after investigation and retain only non-secret metadata
 
 Short completed controls do not qualify a long-stream fix. A peer EOF during an incomplete HTTP body and curl error 18 establish premature transfer termination; they do not identify a specific internal service or prove a documented provider timeout policy
 

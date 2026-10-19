@@ -1,5 +1,15 @@
 # Qualification notes
 
+## GPT-5.6 Sol direct curl checks, 2026-10-19
+
+The same long input used in the preceding GPT-6.1 Sol comparison was prepared with `model: gpt-5.6-sol` and unchanged `xhigh` reasoning. Its input fingerprint matched. Direct curl received HTTP 200 and a real completed response reporting GPT-5.6 Sol after 122.550 seconds, with 258,552 reported input tokens. This input contained reasoning from a different model, and the request completed before the suspected failure boundary, so it was not sufficient to rule out a long-stream problem
+
+Fresh structured-output controls removed the cross-model-history confound. A finite request for the integers 1 through 7,000 completed in 136.188 seconds, reported 20,133 output tokens, and returned the exact requested sequence. A longer request for 40,000 integers used a 128,000 output-token budget; the expected compact JSON itself fits that budget at 119,004 tokens with `o200k_base`
+
+The longer GPT-5.6 Sol/xhigh stream ended at 611.704 seconds after 6,077 text-delta events. Curl exited zero and HTTP framing completed normally, but there was no `response.completed`, `response.failed`, or `response.incomplete`, and no terminal usage. The last event arrived at 607.146 seconds, well before the probe's 1200-second deadline. Upstream events identified the model as GPT-5.6 Sol, and no malformed SSE JSON frames were observed
+
+This reproduces the missing-terminal-response symptom on GPT-5.6 Sol with a fresh short input and no inherited encrypted state. The wire ending differs from the GPT-6.1 Sol curl error-18 case: a successful HTTP transfer still does not mean a complete Responses generation. It does not establish an identical root cause or a universal 630-second cutoff across models. Production configuration, actor histories, and existing gateways remained unchanged
+
 ## Independent direct controls, 2026-10-19
 
 The follow-up investigation kept both existing ports 4000 and 4001 unchanged and used a temporary copilot-api instance on port 4004. It privately captured the exact outgoing body and explicit non-credential headers, then sent those same bytes and the same authorized credential directly through native Node HTTPS and libcurl 7.81.0. No model-generated tool was executed, and original actor histories were left unchanged
