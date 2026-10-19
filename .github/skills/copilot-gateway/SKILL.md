@@ -15,6 +15,8 @@ The replacement exposes all enabled Copilot picker and embedding models without 
 
 The pinned package requires the checked-in direct CLI OAuth compatibility patch for the supplied credential. The launcher verifies its module hashes. This patch changes authentication and identification only, not streaming behavior. Do not claim the historical long-stream truncation is fixed based on the migration's short inference and tool checks
 
+Use the README's isolated diagnostics workflow when investigating streaming or compaction failures. Keep the production gateway and original actor histories unchanged. The diagnostic patch logs metadata, not prompts, encrypted content, credentials, or complete response bodies. Preserve error status and genuine terminal events. A successful recovery of a last-complete-response copy is not a lossless migration of the original failed history
+
 ## Required inputs
 
 Require an explicit credential source and an explicit model for Claude Code. Accept a private token file, a named environment variable, standard input, or a hidden terminal prompt. Never ask for a token in chat, put one in a command argument, print credentials, or commit generated state

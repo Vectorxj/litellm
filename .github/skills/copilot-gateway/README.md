@@ -54,6 +54,35 @@ node --test .github/skills/copilot-gateway/test_copilot_api.mjs
 bash -n .github/skills/copilot-gateway/serve-copilot-api.sh
 ```
 
+### Isolated stream and context diagnostics
+
+`copilot-api-diagnostics.mjs` and `copilot-api-diagnostics.patch` add metadata-only instrumentation to a separate copy of the pinned replacement runtime. They are not enabled by the production launcher and do not change retries, requests, errors, or completion events. The probe records upstream request IDs, request fingerprints and item counts, compaction-carrier fingerprints, explicit output budgets, first/last byte times, terminal events, and transport error classes. Recorded byte and character counts are sizes, not token counts
+
+Provision a dedicated private state directory with its own configuration and local key, the explicitly authorized upstream credential, and a copy of the already-qualified runtime. Do not point the following commands at the production state directory:
+
+```bash
+: "${COPILOT_DIAGNOSTIC_HOME:?Set a dedicated private diagnostic state directory}"
+cp .github/skills/copilot-gateway/copilot-api-diagnostics.mjs \
+  "$COPILOT_DIAGNOSTIC_HOME/runtime/node_modules/@jeffreycao/copilot-api/dist/gateway-diagnostics.mjs"
+patch --batch --forward --fuzz=0 -p1 \
+  -d "$COPILOT_DIAGNOSTIC_HOME/runtime/node_modules/@jeffreycao/copilot-api" \
+  < .github/skills/copilot-gateway/copilot-api-diagnostics.patch
+umask 077
+COPILOT_API_HOME="$COPILOT_DIAGNOSTIC_HOME" \
+COPILOT_API_OAUTH_APP=copilot-cli \
+COPILOT_GATEWAY_DIAGNOSTIC_LOG="$COPILOT_DIAGNOSTIC_HOME/request-events.jsonl" \
+  node "$COPILOT_DIAGNOSTIC_HOME/runtime/node_modules/@jeffreycao/copilot-api/dist/main.js" \
+  start --host 127.0.0.1 --port 4001
+```
+
+Apply the patch once to an uninstrumented 2.7.11 runtime with the direct OAuth patch already applied. Native Codex probes need a separate `CODEX_HOME`, the diagnostic port and key helper, a disposable working directory, and read-only tool permissions. Never resume original experimental sessions or modify frozen catalogs for a probe. Copy and hash source evidence before running a client, because an ephemeral resume can still maintain local session bookkeeping
+
+Completed-item history can grow after a broken stream without receiving fresh terminal usage. Do not equate the last successful usage with the failed request's input size. A counterfactual snapshot at the last complete response is useful for diagnosis, but adopting it for recovery omits partial reasoning and requires explicit approval. Normalizing HTTP error JSON alone does not fix Codex 0.159.3's HTTP 400 context-error classification or its retry-budget accounting
+
+```bash
+node --test .github/skills/copilot-gateway/test_copilot_api_diagnostics.mjs
+```
+
 ## Historical LiteLLM checkpoint
 
 The remaining instructions reproduce the previous LiteLLM backend, not the active copilot-api backend

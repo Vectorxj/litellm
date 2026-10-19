@@ -1,0 +1,7 @@
+--- a/dist/token-kSGCOmTG.js
++++ b/dist/token-kSGCOmTG.js
+@@ -509,0 +510 @@
++import { diagnosticFetch } from "./gateway-diagnostics.mjs";
+@@ -515 +516 @@
+-		const response = await fetch(input, {
++		const response = await diagnosticFetch(input, {

@@ -1,5 +1,29 @@
 # Qualification notes
 
+## Isolated stream and context investigation, 2026-10-19
+
+An independent copilot-api 2.7.11 instance on loopback port 4001 reproduced both supplied context-window failures using copies of the actor-private histories and native Codex 0.159.3. The production gateway on port 4000, original session files, and experimental configurations were hash-checked and left unchanged. No model-generated tool was executed while replaying the captured long request
+
+Direct authorized discovery still reported GPT-6.1 Sol with 1,050,000 total context tokens, 922,000 maximum input tokens, and 128,000 maximum output tokens. The frozen catalog used a valid 829,800 auto-compaction threshold and an effective context percentage of 87. Actual outgoing requests selected `gpt-6.1-sol`, retained `xhigh`, used `/responses`, and omitted `max_output_tokens`; the advertised maximum output is not evidence of an explicit requested budget
+
+The first history had successfully compacted once, reducing the next successful input to 26,365 tokens. The second had compacted twice, reducing subsequent inputs to 25,119 and 25,369 tokens. Remote compaction v2 uses a `compaction_trigger` input item on the ordinary streaming `/responses` endpoint, not a separate `/responses/compact` request. The failed resume retained the original file's compaction records byte for byte
+
+After the last successful response, the first history accumulated 533 additional encrypted reasoning items over six interrupted generations. The second accumulated 332 over four interrupted generations. Their last recorded per-response total usage remained 669,843 and 763,462 respectively. Those values describe completed responses, not the later enlarged requests
+
+The diagnostic native replays retained one matching compaction carrier and 1,465 reasoning items each. They did not reintroduce earlier uncompacted history or contain identical duplicate input items. Both received HTTP 400 with `invalid_request_body` and the context-window message. Their exact rejected input token counts were not returned. Tokenizing visible strings or applying Codex's coarse encrypted-length estimator does not recover the hidden reasoning's exact token count
+
+Forcing pre-request compaction on each complete failed-history copy still received HTTP 400: the history had already grown too large for that request. Independent control copies ending at the last complete response did compact successfully. The compaction requests reported 669,880 and 763,499 input tokens and completed in approximately 196 and 246 seconds. Subsequent requests using the newly returned compaction carriers reported 25,588 and 27,474 input tokens and completed with the requested diagnostic marker. These controls omit the later partial reasoning; no original session was rolled back or migrated
+
+Codex source tag `rust-v0.159.3`, commit `01fc69f4026735edfdf6789820549727a4867b11`, explains the failure path. `core/src/session/turn.rs` rebuilds retry input from the growing history but does not run a compaction check inside the sampling retry loop. `core/src/context_manager/history.rs` anchors context accounting on the last reported usage and counts local items after the latest model-generated item, leaving new unmetered reasoning in the current turn outside that anchor. Pre-turn compaction can therefore use stale usage when resuming
+
+Native protocol fixtures also verified that both the original HTTP 400 error and an HTTP 400 normalized to `context_length_exceeded` are treated as an invalid request in this client. Only the Responses `response.failed` event with that code takes the dedicated context-window path. The investigation did not convert HTTP failures into HTTP 200 streams or ship an ineffective error-normalization workaround
+
+The long-request replay separately reproduced a transport failure. The upstream returned HTTP 200 headers after 23.472 seconds, continued producing response items, delivered bytes at 629.179 seconds, and failed at 630.582 seconds with `TypeError` caused by `UND_ERR_SOCKET`. No upstream terminal response or usage arrived. The diagnostic client received 93 completed output items and a forwarded error event, not a genuine `response.completed`. Upstream request IDs and exact timings remain in private diagnostic logs
+
+An independent WebSocket control used the same captured request without executing returned tools. It received 182 completed output items but ended after 1,318.324 seconds with `Upstream connection lost, Responses websocket stream error`, without a genuine completed response. This single control is not evidence that enabling WebSocket fixes the problem, and the production HTTP/SSE setting was not changed
+
+This evidence supports fixing usage-anchored accounting and compaction checks in the client before retrying growing histories. It does not identify which remote service or network component closed the long stream. No permanent disconnect fix or automatic lossless recovery is claimed
+
 ## copilot-api migration, 2026-10-10
 
 The operator requested replacing the host LiteLLM server with `caozhiyuan/copilot-api` on the same loopback port and exposing all enabled models. The installed npm release is `@jeffreycao/copilot-api@2.7.11`, corresponding to inspected source commit `ce13231da163d0eab2fe112ee8ca293e04af6160`. Node remains 22.23.1 and native Codex remains 0.159.3
