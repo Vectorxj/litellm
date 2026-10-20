@@ -100,6 +100,16 @@ Run the direct arms after the gateway has captured its outgoing request. Native 
 
 Short completed controls do not qualify a long-stream fix. A peer EOF during an incomplete HTTP body and curl error 18 establish premature transfer termination; they do not identify a specific internal service or prove a documented provider timeout policy
 
+For the synthetic numeric test only, `verify-sequence-stream.mjs` retains text deltas in a private `output-text.txt` and always writes `content-analysis.json`, including after missing terminal events or probe exceptions:
+
+```bash
+node .github/skills/copilot-gateway/verify-sequence-stream.mjs "$PRIVATE_SYNTHETIC_CASE"
+```
+
+Use a fresh case directory with the direct-curl credential and request files described above. Its input must match the exported `sequencePrompt(count)` and use the fixed-length `rows` schema. Extra top-level context fields are rejected. Do not use this content-capture mode for real conversation histories
+
+Content validation and protocol completion are independent. The analysis checks JSON validity, exact numeric sequence, delimiter-terminated integers and the actual output tail even when `response.completed` is absent. A final digit fragment is not counted as a complete integer without a separator. Output files are not overwritten, so a repeat needs a fresh directory. Default gateway diagnostics and transport probes still retain metadata only
+
 ## Historical LiteLLM checkpoint
 
 The remaining instructions reproduce the previous LiteLLM backend, not the active copilot-api backend

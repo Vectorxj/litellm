@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { comparisonHeaders, createSseSummary, runProbe } from "./probe-copilot-http.mjs";
+import { analyzeSequence, sequencePrompt, verifySequence } from "./verify-sequence-stream.mjs";
 
 test("independent probe observes fragmented SSE without retaining private content", () => {
   const summary = createSseSummary();
@@ -30,6 +31,70 @@ test("EOF without a terminal event remains incomplete", () => {
   assert.equal(summary.snapshot().terminal, "error");
   assert.equal(summary.snapshot().error_code, "service_unavailable");
   assert.equal(JSON.stringify(summary.snapshot()).includes("private error detail"), false);
+});
+
+test("text is inspected even when no terminal event arrives", () => {
+  const fragments = [];
+  const summary = createSseSummary((delta) => fragments.push(delta));
+  summary.push(Buffer.from('data: {"type":"response.output_text.delta","delta":"{\\"rows\\":[1,2,3]}"}\n\n'));
+  assert.equal(summary.snapshot().terminal, null);
+  assert.equal(analyzeSequence(fragments.join(""), 3).exact_sequence, true);
+  assert.equal(JSON.stringify(summary.snapshot()).includes("rows"), false);
+});
+
+test("a cut number is distinguished from a fully received integer", () => {
+  const result = analyzeSequence('{"rows":[1,2,3,4', 40);
+  assert.equal(result.json_valid, false);
+  assert.equal(result.last_delimited_number, 3);
+  assert.equal(result.contiguous_prefix, 3);
+  assert.equal(result.trailing_fragment, "4");
+  assert.equal(result.exact_sequence, false);
+  const closedArray = analyzeSequence('{"rows":[1,2,3]', 3);
+  assert.equal(closedArray.array_closed, true);
+  assert.equal(closedArray.last_delimited_number, 3);
+  assert.equal(closedArray.json_valid, false);
+  assert.equal(closedArray.exact_sequence, false);
+  assert.equal(analyzeSequence('{"rows":[1,2,3]}', 3).exact_sequence, true);
+  assert.equal(analyzeSequence('{"rows":[1,2,3]}', 4).exact_sequence, false);
+  assert.deepEqual(analyzeSequence('{"rows":[1,3,2]}', 3).first_mismatch,
+    { position: 2, expected: 2, observed: 3 });
+});
+
+for (const throws of [false, true]) test(`received text is retained and validated after failure, throws=${throws}`, async () => {
+  const directory = await mkdtemp(join(tmpdir(), "copilot-sequence-probe-"));
+  const text = throws ? '{"rows":[1,2,3]}' : '{"rows":[1,2,3';
+  try {
+    await writeFile(join(directory, "upstream-request.private.body"), JSON.stringify({
+      input: sequencePrompt(3),
+      text: { format: { schema: { properties: { rows: { minItems: 3, maxItems: 3 } } } } },
+    }), { mode: 0o600 });
+    const promise = verifySequence(directory, async (_directory, onText) => {
+      onText(text);
+      if (throws) throw new Error("transport interrupted");
+      return { terminal: null, reported_model: "fixture" };
+    });
+    if (throws) await assert.rejects(promise, /transport interrupted/);
+    else await promise;
+    assert.equal(await readFile(join(directory, "output-text.txt"), "utf8"), text);
+    const analysis = JSON.parse(await readFile(join(directory, "content-analysis.json"), "utf8"));
+    assert.equal(analysis.protocol_terminal, null);
+    assert.equal(analysis.exact_sequence, throws);
+    assert.equal(analysis.last_delimited_number, throws ? 3 : 2);
+  } finally {
+    await rm(directory, { recursive: true });
+  }
+});
+
+test("synthetic content capture refuses unrelated context", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "copilot-sequence-probe-"));
+  try {
+    await writeFile(join(directory, "upstream-request.private.body"), JSON.stringify({
+      input: sequencePrompt(3), instructions: "Unrelated private context",
+    }), { mode: 0o600 });
+    await assert.rejects(verifySequence(directory), /cannot include other context/);
+  } finally {
+    await rm(directory, { recursive: true });
+  }
 });
 
 for (const completeHttp of [false, true]) test(`HTTP complete=${completeHttp} does not imply response.completed`, async () => {

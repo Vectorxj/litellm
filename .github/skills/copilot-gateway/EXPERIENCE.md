@@ -1,5 +1,17 @@
 # Qualification notes
 
+## Unconditional content verification, 2026-10-20
+
+The GPT-5.6 Sol/xhigh 40,000-number request was repeated directly with curl, using the same synthetic prompt, fixed-length JSON schema and 128,000 output-token budget. This time every decoded text delta was retained in a private file and checked regardless of whether a terminal event arrived
+
+The response ended after 467.000 seconds with HTTP 200 and curl exit zero. It contained 4,644 text-delta events but no completed, failed or incomplete response event, and no terminal usage. The upstream reported GPT-5.6 Sol and the requested 128,000 output limit
+
+The received text was 128,624 bytes and exactly matched a prefix of the expected 228,904-byte compact JSON. It ended at the text `,23280,23281,23282,23283,23284,23285,23286,23287`, without `]}`. JSON parsing failed at EOF. The delimiter-terminated sequence was exactly 1 through 23,286, with `23287` left as the final un-delimited fragment. Independent Python validation agreed with the JavaScript inspector
+
+This reproduction establishes that the received content itself was incomplete, not merely that an otherwise complete answer lacked its terminal notification. It does not retroactively determine the body of the previous run, whose text was not retained, and the shorter duration is another reason not to describe every failure as a universal 630-second cutoff
+
+The synthetic output and validation metadata remain private. Existing gateways, Codex configuration and original experimental histories were not modified. The inspector's regression tests cover complete text with a missing terminal event, truncated JSON, a cut integer, and transport exceptions after receiving text
+
 ## GPT-5.6 Sol direct curl checks, 2026-10-19
 
 The same long input used in the preceding GPT-6.1 Sol comparison was prepared with `model: gpt-5.6-sol` and unchanged `xhigh` reasoning. Its input fingerprint matched. Direct curl received HTTP 200 and a real completed response reporting GPT-5.6 Sol after 122.550 seconds, with 258,552 reported input tokens. This input contained reasoning from a different model, and the request completed before the suspected failure boundary, so it was not sufficient to rule out a long-stream problem

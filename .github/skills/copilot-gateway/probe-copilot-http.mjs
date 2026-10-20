@@ -17,7 +17,7 @@ export const comparisonHeaders = Object.freeze([
   "x-session-affinity", "x-parent-session-id", "accept-encoding",
 ]);
 
-export function createSseSummary() {
+export function createSseSummary(onTextDelta) {
   const decoder = new TextDecoder();
   const counts = new Map();
   let buffer = "";
@@ -55,6 +55,9 @@ export function createSseSummary() {
           }
         }
         counts.set(type, (counts.get(type) ?? 0) + 1);
+        if (type === "response.output_text.delta" && typeof event.delta === "string") {
+          onTextDelta?.(event.delta);
+        }
         if (["response.completed", "response.failed", "response.incomplete", "error"].includes(type)) {
           terminal = type;
           errorCode = identifier(event.error?.code ?? event.response?.error?.code ?? event.code);
@@ -173,7 +176,7 @@ export async function runProbe(target, directory, gatewayPort = 4004) {
   });
 }
 
-export async function runCurlProbe(directory) {
+export async function runCurlProbe(directory, onTextDelta) {
   const bodyPath = join(directory, "upstream-request.private.body");
   const body = privateBytes(bodyPath);
   const token = privateBytes(join(directory, "copilot-cli/github_token")).toString().trim();
@@ -189,7 +192,7 @@ export async function runCurlProbe(directory) {
     + '"time_starttransfer":%{time_starttransfer},"time_connect":%{time_connect},'
     + '"size_upload":%{size_upload},"size_download":%{size_download},"exit_code":%{exitcode},'
     + '"http_version":"%{http_version}"}\n';
-  const sse = createSseSummary();
+  const sse = createSseSummary(onTextDelta);
   const started = performance.now();
   let firstDataMs = null;
   let lastDataMs = null;
